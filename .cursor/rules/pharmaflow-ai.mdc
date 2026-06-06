@@ -1,0 +1,89 @@
+---
+description: PharmaFlow AI project context and working rules
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+# PharmaFlow AI Cursor Rules
+
+You are working on PharmaFlow AI, a pharmacy-focused outbound calling SaaS demo.
+
+## Project Context
+
+- Repo: `/Users/manitdankhara/Projects/pharmaflow-ai`
+- GitHub: `https://github.com/manit0700/pharmaflow-ai`
+- Frontend: React, Vite, TypeScript, Tailwind, shadcn-style/Radix components
+- Backend: Express, TypeScript, Prisma
+- Local DB: SQLite
+- Production target: Vercel
+- Real-call integration: Twilio Voice
+- Optional AI call mode: OpenAI
+- Production URL: `https://pharmaflow-ai.vercel.app`
+
+## Core Commands
+
+- Run local app: `npm run dev:pc`
+- Kill old API ports: `npm run api:kill-old`
+- Build all: `npm run build`
+- Build server only: `npm run build --prefix server`
+- Deploy production: `npx vercel@latest deploy --prod --yes`
+- Check production health: `curl https://pharmaflow-ai.vercel.app/api/health`
+
+## Current Product Areas
+
+- `/dashboard`: live call jobs and manual patient entry
+- `/calls`: polished Call Recordings dashboard with mock call review data
+- `/conversations`: call history/transcripts from jobs
+- `/workflows`: call flow/demo
+- `/analytics`: call analytics
+- `/compliance`: demo compliance dashboard
+
+## Important Constraints
+
+- Never put real PHI in code, logs, mock data, screenshots, commits, or console output.
+- Use fake or masked patient names, DOBs, phone numbers, and medication names.
+- Do not log medication details or DOBs in frontend/server logs.
+- Do not implement SMS unless explicitly requested again. SMS follow-up is currently not part of active work.
+- Do not commit `.env`, `.env.local`, `server/.env`, `server/local.config.json`, `node_modules`, `dist`, `server/dist`, or database files.
+- Keep Vercel deployment attached to the existing PharmaFlow AI project.
+- Vercel production currently needs a durable Postgres `DATABASE_URL` for reliable real-call status persistence. Temporary SQLite on Vercel is demo-only.
+
+## Twilio Notes
+
+- `AUTO_CALL_TEST_MODE=true` simulates calls.
+- `AUTO_CALL_TEST_MODE=false` places real Twilio calls.
+- `PUBLIC_BASE_URL` must be public HTTPS for Twilio webhooks.
+- Trial Twilio accounts can only call verified destination numbers.
+- Current production public base URL should be `https://pharmaflow-ai.vercel.app`.
+- Do not call real patients from test data.
+
+## Engineering Style
+
+- Match existing React/Tailwind/Radix patterns.
+- Prefer small, scoped changes.
+- Keep UI pharmacy-friendly, clear, and non-technical.
+- Use loading, empty, and error states for user-facing flows.
+- Make desktop and mobile layouts work.
+- Run `npm run build` before deploy/commit.
+- For UI QA, verify `/calls` and `/dashboard` in desktop and mobile sizes when those areas are touched.
+
+## Deployment Workflow
+
+1. Inspect `git status --short`.
+2. Run `npm run build`.
+3. Deploy with `npx vercel@latest deploy --prod --yes`.
+4. Verify `https://pharmaflow-ai.vercel.app/api/health`.
+5. Verify the changed production route in browser or Playwright.
+6. Commit only safe files.
+7. Push to `origin main`.
+
+## Communication
+
+When reporting back:
+
+- Say exactly what changed.
+- Say what commands passed.
+- Include production URL if deployed.
+- Include commit hash if committed.
+- Mention remaining limitations honestly, especially database durability or Twilio trial restrictions.

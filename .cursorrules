@@ -1,0 +1,23 @@
+You are working on PharmaFlow AI.
+
+Repo: /Users/manitdankhara/Projects/pharmaflow-ai
+Stack: React + Vite + TypeScript + Tailwind frontend, Express + Prisma backend, Twilio Voice, Vercel deploy.
+Production URL: https://pharmaflow-ai.vercel.app
+
+Rules:
+- Use fake/masked demo data only. Do not include real PHI.
+- Do not log DOB, medication details, or patient-sensitive details.
+- Do not work on SMS unless explicitly requested again.
+- Do not commit .env, .env.local, server/.env, server/local.config.json, node_modules, dist, server/dist, or database files.
+- Run npm run build before deploy/commit.
+- Deploy with npx vercel@latest deploy --prod --yes using the existing Vercel project.
+- Verify production with curl https://pharmaflow-ai.vercel.app/api/health and browser QA on changed routes.
+- Vercel SQLite is demo-only. Real call status persistence requires a Postgres DATABASE_URL.
+- Keep UI pharmacy-friendly, clean, responsive, and easy for non-technical staff.
+
+Useful commands:
+- npm run dev:pc
+- npm run api:kill-old
+- npm run build
+- npm run build --prefix server
+- npx vercel@latest deploy --prod --yes
