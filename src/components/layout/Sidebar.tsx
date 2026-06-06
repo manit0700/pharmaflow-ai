@@ -13,11 +13,11 @@ import { cn } from '@/lib/utils'
 
 const nav = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/calls', icon: Phone, label: 'Excel Auto-Call' },
-  { to: '/workflows', icon: GitBranch, label: 'Outbound Workflows' },
-  { to: '/conversations', icon: MessageSquare, label: 'Call Recordings' },
+  { to: '/calls', icon: Phone, label: 'Call Recordings' },
+  { to: '/workflows', icon: GitBranch, label: 'Call flow' },
+  { to: '/conversations', icon: MessageSquare, label: 'Call history' },
   { to: '/integrations', icon: Plug, label: 'Integrations' },
-  { to: '/compliance', icon: Shield, label: 'Compliance' },
+  { to: '/compliance', icon: Shield, label: 'Audit log' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
 ]
 
@@ -30,7 +30,7 @@ export function Sidebar() {
         </div>
         <div>
           <p className="text-sm font-semibold leading-tight">PharmaFlow AI</p>
-          <p className="text-[10px] text-muted-foreground">Outbound voice automation</p>
+          <p className="text-[10px] text-muted-foreground">Outbound pharmacy calls</p>
         </div>
       </div>
       <nav className="flex flex-1 flex-col gap-0.5 p-3">
@@ -55,7 +55,7 @@ export function Sidebar() {
       </nav>
       <div className="border-t border-border p-4">
         <p className="text-[10px] leading-relaxed text-muted-foreground">
-          Demo UI — not HIPAA-certified. Mock data only.
+          Live on your PC API. Configure Twilio in server/local.config.json.
         </p>
       </div>
     </aside>

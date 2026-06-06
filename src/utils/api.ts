@@ -1,21 +1,25 @@
 /**
- * Dev: use same-origin /api → Vite proxies to localhost:4002 (avoids "Failed to fetch").
- * Override with VITE_API_BASE_URL in .env.local if needed.
+ * Dev: default same-origin /api → Vite proxy to 127.0.0.1:4002.
+ * Set VITE_API_BASE_URL in .env.local only when you need a direct API host.
  */
-const ENV_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+function getApiBase(): string {
+  const raw = import.meta.env.VITE_API_BASE_URL as string | undefined
+  const hasExplicit = raw !== undefined && String(raw).trim() !== ''
+  const base = (raw ?? '').replace(/\/$/, '')
 
-function getApiBase() {
-  if (typeof window !== 'undefined' && ENV_BASE === window.location.origin) {
+  if (import.meta.env.DEV && !hasExplicit) return ''
+
+  if (typeof window !== 'undefined' && base === window.location.origin) {
     return ''
   }
-  if (import.meta.env.DEV) return ENV_BASE
-  return ENV_BASE
+  return base
 }
 
 const BASE = getApiBase()
 
 export interface CallJob {
   id: string
+  uploadBatchId?: string | null
   patientName: string
   phoneNumber: string
   dob: string
@@ -32,8 +36,48 @@ export interface CallJob {
   patientResponse: string | null
   aiSummary: string | null
   errorMessage: string | null
+  transcriptJson: string | null
+  messagesJson: string | null
+  aiConfidence: number | null
+  resolutionStatus: string | null
+  resolvedAt?: string | null
+  resolvedBy?: string | null
+  staffNotes?: string | null
+  safetyFlagsJson?: string | null
+  duplicateOfId?: string | null
+  doNotCall?: boolean
   staffFollowUpNeeded: boolean
   followUpReason: string | null
+  createdAt: string
+  callEvents?: CallEvent[]
+  staffTasks?: StaffTask[]
+}
+
+export interface CallEvent {
+  id: string
+  callJobId: string | null
+  twilioCallSid: string | null
+  eventType: string
+  eventPayload: string | null
+  createdAt: string
+}
+
+export interface UploadBatch {
+  id: string
+  filename: string
+  imported: number
+  valid: number
+  invalid: number
+  duplicateCount: number
+  createdAt: string
+}
+
+export interface DoNotCallEntry {
+  id: string
+  phoneNumber: string
+  patientName: string | null
+  reason: string | null
+  createdBy: string | null
   createdAt: string
 }
 
@@ -50,18 +94,33 @@ export interface StaffTask {
 
 export interface HealthResponse {
   ok: boolean
+  configSource?: 'local.config.json' | 'env'
   apiVersion?: number
-  features?: { createCallJob?: boolean }
+  callMode?: 'dtmf' | 'ai'
+  aiCallConfigured?: boolean | null
+  callAiModel?: string | null
+  features?: {
+    createCallJob?: boolean
+    simulatedCalls?: boolean
+    dtmfScripts?: boolean
+    aiConversation?: boolean
+  }
   twilioConfigured: boolean
   twilioAuthMode?: string
   twilioAccount?: { type: string; friendlyName: string; status: string } | null
   twilioFromNumber?: string
   testMode: boolean
   publicBaseUrl?: string
+  port?: number
   liveCallReadiness?: {
     ready: boolean
     issues: string[]
     publicBaseUrl: string
+  }
+  database?: {
+    provider: 'sqlite' | 'postgres' | 'unknown' | 'missing'
+    durable: boolean
+    warning: string | null
   }
 }
 
@@ -120,6 +179,14 @@ export async function fetchCallJobs(): Promise<CallJob[]> {
   return request<CallJob[]>('/call-jobs')
 }
 
+export async function fetchUploadBatches(): Promise<UploadBatch[]> {
+  return request<UploadBatch[]>('/upload-batches')
+}
+
+export async function fetchDoNotCall(): Promise<DoNotCallEntry[]> {
+  return request<DoNotCallEntry[]>('/do-not-call')
+}
+
 export interface CreateCallJobInput {
   patientName: string
   phoneNumber: string
@@ -144,12 +211,66 @@ export async function createCallJob(input: CreateCallJobInput): Promise<CallJob>
   })
 }
 
-export async function startCall(jobId: string): Promise<CallJob> {
-  return request<CallJob>(`/call-jobs/${jobId}/start-call`, { method: 'POST' })
+export async function startCall(job: CallJob): Promise<CallJob> {
+  return request<CallJob>(`/call-jobs/${job.id}/start-call`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ job }),
+  })
 }
 
-export async function retryCall(jobId: string): Promise<CallJob> {
-  return request<CallJob>(`/call-jobs/${jobId}/retry`, { method: 'POST' })
+export async function retryCall(job: CallJob): Promise<CallJob> {
+  return request<CallJob>(`/call-jobs/${job.id}/retry`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ job }),
+  })
+}
+
+export async function fetchCallScript(jobId: string): Promise<{ callJobId: string; mode: string; script: string }> {
+  return request<{ callJobId: string; mode: string; script: string }>(`/call-jobs/${jobId}/script`)
+}
+
+export type UpdateCallJobInput = {
+  job?: CallJob
+  notes?: string | null
+  staffNotes?: string | null
+  staffFollowUpNeeded?: boolean
+  followUpReason?: string | null
+  callStatus?: string
+  resolutionStatus?: string | null
+  resolvedBy?: string
+}
+
+export async function updateCallJob(id: string, data: UpdateCallJobInput): Promise<CallJob> {
+  return request<CallJob>(`/call-jobs/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data),
+  })
+}
+
+export async function resolveCallJob(
+  id: string,
+  data: { staffNotes?: string; resolvedBy?: string } = {},
+): Promise<CallJob> {
+  return request<CallJob>(`/call-jobs/${id}/resolve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+}
+
+export async function addDoNotCall(data: {
+  phoneNumber: string
+  patientName?: string
+  reason?: string
+}): Promise<DoNotCallEntry> {
+  return request<DoNotCallEntry>('/do-not-call', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
 }
 
 export async function importExcel(file: File): Promise<{ imported: number; valid: number; invalid: number }> {
@@ -174,6 +295,48 @@ export function exportExcelUrl(): string {
 
 export async function fetchTasks(): Promise<StaffTask[]> {
   return request<StaffTask[]>('/tasks')
+}
+
+export interface AnalyticsResponse {
+  totalJobs: number
+  attempted: number
+  completed: number
+  escalated: number
+  withPatientResponse: number
+  byReason: { reason: string; count: number }[]
+  byStatus: { status: string; count: number }[]
+  series: { date: string; calls: number; completed: number; escalations: number }[]
+  aiVsHuman: { name: string; value: number; fill: string }[]
+  channelMix: { name: string; calls: number }[]
+  completionByReason: { reason: string; total: number; completed: number }[]
+}
+
+export interface AuditEventItem {
+  id: string
+  timestamp: string
+  actor: string
+  action: string
+  resource: string
+  severity: 'info' | 'warning' | 'critical'
+  details: string
+}
+
+export interface AuditResponse {
+  events: AuditEventItem[]
+  stats: {
+    callEvents: number
+    staffTasks: number
+    outboundCalls: number
+    followUpsNeeded: number
+  }
+}
+
+export async function fetchAnalytics(): Promise<AnalyticsResponse> {
+  return request<AnalyticsResponse>('/analytics')
+}
+
+export async function fetchAuditEvents(): Promise<AuditResponse> {
+  return request<AuditResponse>('/audit-events')
 }
 
 export async function updateTask(

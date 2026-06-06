@@ -70,16 +70,51 @@ Copy the HTTPS forwarding URL into `server/.env` as `PUBLIC_BASE_URL`, restart `
 
 ### Deploy for a permanent `PUBLIC_BASE_URL`
 
-For real Twilio webhooks without ngrok, deploy the API and use the API service URL as `PUBLIC_BASE_URL`.
+For real Twilio webhooks without ngrok, deploy the API and use the public app URL as `PUBLIC_BASE_URL`.
 
 ```env
-PUBLIC_BASE_URL=https://pharmaflow-ai-api.onrender.com
-VITE_API_BASE_URL=https://pharmaflow-ai-api.onrender.com
+PUBLIC_BASE_URL=https://pharmaflow-ai.vercel.app
+VITE_API_BASE_URL=
 ```
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for the Render blueprint and exact environment variables.
+### Production database on Vercel
 
-For Vercel frontend deployment, see [VERCEL.md](./VERCEL.md). The current SQLite backend should not be used as a production Vercel serverless backend.
+Local development can use SQLite:
+
+```env
+DATABASE_URL=file:./dev.db
+```
+
+Vercel production must use a durable Postgres database. Do not use `file:/tmp/pharmaflow.db` for real calls because serverless storage can disappear between Twilio callbacks.
+
+Use Neon, Supabase, Vercel Postgres, or another managed Postgres provider, then set:
+
+```env
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require
+```
+
+The build automatically generates the correct Prisma client:
+
+- `file:` URL -> SQLite schema for local dev
+- `postgres://` or `postgresql://` URL -> Postgres schema for Vercel
+
+On Vercel:
+
+```bash
+vercel env rm DATABASE_URL production
+vercel env add DATABASE_URL production
+vercel deploy --prod
+```
+
+After deploy, check:
+
+```bash
+curl https://pharmaflow-ai.vercel.app/api/health
+```
+
+The health response should include `"database":{"provider":"postgres","durable":true}`.
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for additional deployment notes.
 
 ### Live demo (presentation mode)
 

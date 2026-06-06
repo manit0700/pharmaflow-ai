@@ -1,133 +1,90 @@
+import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
-import { auditEvents } from '@/data/mockData'
+import { fetchAuditEvents, type AuditResponse } from '@/utils/api'
 import { formatTime } from '@/lib/utils'
-import { AlertTriangle } from 'lucide-react'
+import { Skeleton } from '@/components/ui/skeleton'
 
-const roles = [
-  { role: 'Pharmacist', access: 'Full workflow + PHI review', users: 4 },
-  { role: 'Technician', access: 'Refill workflows, limited PHI', users: 8 },
-  { role: 'Front desk', access: 'Conversations, no export', users: 6 },
-  { role: 'Admin', access: 'Integrations + audit (demo)', users: 2 },
-]
+const severityVariant = {
+  info: 'secondary' as const,
+  warning: 'warning' as const,
+  critical: 'destructive' as const,
+}
 
 export function CompliancePage() {
+  const [audit, setAudit] = useState<AuditResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchAuditEvents()
+      .then(setAudit)
+      .catch(() => setAudit(null))
+      .finally(() => setLoading(false))
+    const id = setInterval(() => {
+      fetchAuditEvents().then(setAudit).catch(() => {})
+    }, 12000)
+    return () => clearInterval(id)
+  }, [])
+
+  const stats = audit?.stats
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Compliance</h1>
-        <p className="text-sm text-muted-foreground">HIPAA-oriented workflow controls — demo dashboard only</p>
+        <h1 className="text-2xl font-semibold tracking-tight">Audit log</h1>
+        <p className="text-sm text-muted-foreground">
+          Live trail of outbound calls, Twilio events, and staff escalations from your database
+        </p>
       </div>
 
-      <div className="flex gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
-        <AlertTriangle className="h-5 w-5 shrink-0 text-warning" />
-        <div>
-          <p className="font-semibold">Demo compliance dashboard</p>
-          <p className="text-muted-foreground mt-1">
-            This is illustrative mock data — not a production HIPAA implementation or certification.
-            Do not use for real PHI without a full compliance program.
-          </p>
-        </div>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-3">
-        {[
-          { title: 'PHI redactions (7d)', value: '142', sub: 'Automated in transcripts' },
-          { title: 'Consent checks', value: '98%', sub: 'Voice + SMS capture' },
-          { title: 'Retention policy', value: '90 days', sub: 'Active transcripts (mock)' },
-        ].map((c) => (
-          <Card key={c.title}>
-            <CardContent className="p-5">
-              <p className="text-xs text-muted-foreground">{c.title}</p>
-              <p className="text-2xl font-semibold mt-1">{c.value}</p>
-              <p className="text-xs text-muted-foreground mt-1">{c.sub}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Mock audit log</CardTitle>
-            <CardDescription>Sensitive workflow actions — illustrative only</CardDescription>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                  <th className="pb-2 pr-3">Time</th>
-                  <th className="pb-2 pr-3">Actor</th>
-                  <th className="pb-2 pr-3">Action</th>
-                  <th className="pb-2">Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {auditEvents.map((e) => (
-                  <tr key={e.id} className="border-b border-border/50">
-                    <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
-                      {formatTime(e.timestamp)}
-                    </td>
-                    <td className="py-2 pr-3">{e.actor}</td>
-                    <td className="py-2 pr-3">
-                      <Badge
-                        variant={
-                          e.severity === 'critical'
-                            ? 'destructive'
-                            : e.severity === 'warning'
-                              ? 'warning'
-                              : 'secondary'
-                        }
-                      >
-                        {e.action}
-                      </Badge>
-                    </td>
-                    <td className="py-2 text-muted-foreground">{e.details}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Illustrative access controls</CardTitle>
-            <CardDescription>Role-based access mockup</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {roles.map((r) => (
-              <div key={r.role} className="rounded-md border border-border p-3">
-                <div className="flex justify-between">
-                  <p className="font-medium text-sm">{r.role}</p>
-                  <Badge variant="outline">{r.users} users</Badge>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">{r.access}</p>
-              </div>
+      <div className="grid gap-4 sm:grid-cols-4">
+        {loading
+          ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20" />)
+          : [
+              { title: 'Twilio events', value: String(stats?.callEvents ?? 0) },
+              { title: 'Staff tasks', value: String(stats?.staffTasks ?? 0) },
+              { title: 'Outbound calls', value: String(stats?.outboundCalls ?? 0) },
+              { title: 'Follow-ups needed', value: String(stats?.followUpsNeeded ?? 0) },
+            ].map((c) => (
+              <Card key={c.title}>
+                <CardContent className="p-5">
+                  <p className="text-xs text-muted-foreground">{c.title}</p>
+                  <p className="text-2xl font-semibold mt-1">{c.value}</p>
+                </CardContent>
+              </Card>
             ))}
-          </CardContent>
-        </Card>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Retention & governance settings (demo)</CardTitle>
+          <CardTitle>Recent activity</CardTitle>
+          <CardDescription>Newest events first — refreshes every 12 seconds</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="retention">Archive transcripts after 90 days</Label>
-            <Switch id="retention" defaultChecked />
-          </div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="redact">Auto-redact DOB in exports</Label>
-            <Switch id="redact" defaultChecked />
-          </div>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="consent">Require consent before SMS</Label>
-            <Switch id="consent" defaultChecked />
-          </div>
+        <CardContent className="max-h-[32rem] overflow-auto">
+          {!audit?.events.length ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              No audit events yet. Place outbound calls to populate this log.
+            </p>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {audit.events.map((e) => (
+                <li
+                  key={e.id}
+                  className="flex flex-wrap items-start justify-between gap-2 border-b border-border/60 pb-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{e.action}</p>
+                    <p className="text-xs text-muted-foreground truncate">{e.details}</p>
+                    <p className="text-[10px] text-muted-foreground font-mono">{e.resource}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <Badge variant={severityVariant[e.severity]}>{e.severity}</Badge>
+                    <span className="text-[10px] text-muted-foreground">{formatTime(e.timestamp)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </CardContent>
       </Card>
     </div>

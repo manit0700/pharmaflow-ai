@@ -9,6 +9,8 @@ datasource db {
 
 model CallJob {
   id                  String   @id @default(cuid())
+  uploadBatchId       String?
+  uploadBatch         UploadBatch? @relation(fields: [uploadBatchId], references: [id])
   patientName         String
   phoneNumber         String
   dob                 String
@@ -29,6 +31,12 @@ model CallJob {
   messagesJson        String?
   aiConfidence        Float?
   resolutionStatus    String?
+  resolvedAt          DateTime?
+  resolvedBy          String?
+  staffNotes          String?
+  safetyFlagsJson     String?
+  duplicateOfId       String?
+  doNotCall           Boolean  @default(false)
   staffFollowUpNeeded Boolean  @default(false)
   followUpReason      String?
   smsStatus           String   @default("none")
@@ -37,6 +45,27 @@ model CallJob {
 
   staffTasks StaffTask[]
   callEvents CallEvent[]
+}
+
+model UploadBatch {
+  id             String   @id @default(cuid())
+  filename       String
+  imported       Int      @default(0)
+  valid          Int      @default(0)
+  invalid        Int      @default(0)
+  duplicateCount Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  callJobs CallJob[]
+}
+
+model DoNotCallEntry {
+  id          String   @id @default(cuid())
+  phoneNumber String   @unique
+  patientName String?
+  reason      String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
 }
 
 model StaffTask {

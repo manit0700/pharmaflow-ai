@@ -1,11 +1,16 @@
-import 'dotenv/config'
+import { getConfigSource, loadSettings } from './loadSettings.js'
 import { normalizePhone } from './services/safety.js'
+
+loadSettings()
 
 function e164OrRaw(raw: string): string {
   return normalizePhone(raw) ?? raw.trim()
 }
 
+const configSource = getConfigSource()
+
 export const config = {
+  configSource,
   port: Number(process.env.PORT ?? 4002),
   publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? 'http://localhost:4002').replace(/\/$/, ''),
   /** Office/main account SID — must start with AC (not SK) */
@@ -24,6 +29,14 @@ export const config = {
   twilioVoice: process.env.TWILIO_VOICE ?? 'Polly.Joanna',
   /** Optional: en-US, en-GB */
   twilioLanguage: process.env.TWILIO_LANGUAGE ?? 'en-US',
+  /** Optional: OpenAI for AI-assisted call turns */
+  openaiApiKey: process.env.OPENAI_API_KEY ?? '',
+  callAiModel: process.env.CALL_AI_MODEL ?? 'gpt-4o-mini',
+  /** Outbound call script mode: dtmf (keypad) or ai (speech + OpenAI) */
+  callMode: (process.env.CALL_MODE === 'ai' ? 'ai' : 'dtmf') as 'dtmf' | 'ai',
+  enforceBusinessHours: process.env.ENFORCE_BUSINESS_HOURS === 'true',
+  businessHoursStart: Number(process.env.BUSINESS_HOURS_START ?? 8),
+  businessHoursEnd: Number(process.env.BUSINESS_HOURS_END ?? 20),
 }
 
 export const VALID_CALL_REASONS = [

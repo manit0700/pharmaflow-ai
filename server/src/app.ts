@@ -5,6 +5,7 @@ import { importRouter } from './routes/import.js'
 import { callJobsRouter } from './routes/callJobs.js'
 import { tasksRouter } from './routes/tasks.js'
 import { twilioRouter } from './routes/twilio.js'
+import { analyticsRouter } from './routes/analytics.js'
 import { ensureRuntimeDb, shouldInitializeRuntimeDb } from './lib/runtimeDb.js'
 
 export function createApp() {
@@ -16,12 +17,16 @@ export function createApp() {
 
   if (shouldInitializeRuntimeDb()) {
     app.use(async (_req, _res, next) => {
+      if (_req.path === '/api/health') {
+        next()
+        return
+      }
       try {
         await ensureRuntimeDb()
-        next()
       } catch (err) {
-        next(err)
+        console.error('Runtime DB unavailable; continuing with stateless Vercel fallback', err)
       }
+      next()
     })
   }
 
@@ -30,6 +35,7 @@ export function createApp() {
   app.use('/api', callJobsRouter)
   app.use('/api', tasksRouter)
   app.use('/api', twilioRouter)
+  app.use('/api', analyticsRouter)
 
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     void _next

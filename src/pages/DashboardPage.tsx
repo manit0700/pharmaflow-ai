@@ -4,9 +4,12 @@ import { KpiCard } from '@/components/shared/KpiCard'
 import { AddPatientForm } from '@/components/calls/AddPatientForm'
 import { CallJobsTable } from '@/components/calls/CallJobsTable'
 import { CallOpsToolbar } from '@/components/calls/CallOpsToolbar'
+import { CallStatusBanners } from '@/components/calls/CallStatusBanners'
+import { ActiveCallsPanel } from '@/components/calls/ActiveCallsPanel'
 import { useCallOperations } from '@/hooks/useCallOperations'
 import type { KPIStat } from '@/types'
 import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
 
 export function DashboardPage() {
   const {
@@ -15,11 +18,17 @@ export function DashboardPage() {
     tasks,
     loading,
     callingId,
+    activeJobs,
     refresh,
     onUpload,
     onCreate,
     onStart,
     onRetry,
+    onPreviewScript,
+    onSaveNotes,
+    onUpdateExistingJob,
+    onResolve,
+    onAddDoNotCall,
     queued,
     completed,
     invalid,
@@ -73,79 +82,16 @@ export function DashboardPage() {
         />
       </div>
 
-      {health?.ok && health.testMode && (
-        <Card className="border-primary/30 bg-primary/5">
-          <CardContent className="p-4 text-sm">
-            <strong>Test call mode</strong> — Call simulates instantly (no Twilio, no 403). For real
-            phone rings, set <code className="text-xs">AUTO_CALL_TEST_MODE=false</code> in{' '}
-            <code className="text-xs">server/.env</code> and verify numbers in Twilio.
-          </CardContent>
-        </Card>
-      )}
+      <CallStatusBanners health={health} loading={loading} />
 
-      {health?.ok && !health.testMode && (
-        <Card
-          className={
-            health.twilioAccount?.type === 'Trial'
-              ? 'border-destructive/40 bg-destructive/5'
-              : 'border-primary/30 bg-primary/5'
-          }
-        >
-          <CardContent className="space-y-2 p-4 text-sm">
-            <strong>Live Twilio mode</strong> — calling from{' '}
-            <code className="text-xs">{health.twilioFromNumber ?? 'unknown'}</code>
-            {health.twilioAccount?.friendlyName && (
-              <span> · account: {health.twilioAccount.friendlyName}</span>
-            )}
-            {health.twilioAccount?.type === 'Trial' ? (
-              <p className="text-muted-foreground">
-                Twilio still reports this account as <strong>Trial</strong> — you can only call{' '}
-                <a
-                  href="https://console.twilio.com/us1/develop/phone-numbers/manage/verified"
-                  className="text-primary underline"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  verified numbers
-                </a>
-                . Upgrade billing in Twilio Console to call any US number, or set{' '}
-                <code>AUTO_CALL_TEST_MODE=true</code> to simulate calls.
-              </p>
-            ) : health.twilioAccount?.type === 'Full' ? (
-              <p className="text-muted-foreground">
-                Paid Twilio account detected — you can call patient numbers without verifying each
-                one (normal carrier rules still apply).
-              </p>
-            ) : (
-              <p className="text-muted-foreground">
-                Could not read account type from Twilio. If calls fail, confirm{' '}
-                <code>TWILIO_ACCOUNT_SID</code>, API key, and <code>TWILIO_PHONE_NUMBER</code> are
-                all from the same pharmacy account, then redeploy Vercel.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {!health?.ok && !loading && (
-        <Card className="border-destructive/40 bg-destructive/5">
-          <CardContent className="space-y-2 p-4 text-sm">
-            <p>
-              <strong>Cannot fetch / API offline.</strong> Start both servers:
-            </p>
-            <code className="block text-xs">cd ~/Projects/pharmaflow-ai && npm run dev:all</code>
-            <p className="text-muted-foreground">
-              Open the app at <strong>http://localhost:5173/dashboard</strong> (use the port Vite prints
-              if different). API should be at http://localhost:4002/api/health
-            </p>
-          </CardContent>
-        </Card>
-      )}
+      <ActiveCallsPanel jobs={activeJobs} health={health} callingId={callingId} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {kpis.map((k) => (
-          <KpiCard key={k.id} stat={k} />
-        ))}
+        {loading && jobs.length === 0
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-24 rounded-lg" />
+            ))
+          : kpis.map((k) => <KpiCard key={k.id} stat={k} />)}
       </div>
 
       <Card>
@@ -182,8 +128,14 @@ export function DashboardPage() {
           <CallJobsTable
             jobs={jobs}
             callingId={callingId}
+            health={health}
             onStart={(id) => void onStart(id)}
             onRetry={(id) => void onRetry(id)}
+            onPreviewScript={onPreviewScript}
+            onSaveNotes={(id, notes) => void onSaveNotes(id, notes)}
+            onUpdateJob={(job, data) => void onUpdateExistingJob(job, data)}
+            onResolve={(id, notes) => void onResolve(id, notes)}
+            onAddDoNotCall={(job) => void onAddDoNotCall(job)}
           />
         </CardContent>
       </Card>
@@ -209,15 +161,17 @@ export function DashboardPage() {
       )}
 
       <p className="text-xs text-muted-foreground">
-        Demo mode:{' '}
-        <Link to="/workflows?demo=live" className="text-primary underline">
-          /workflows?demo=live
-        </Link>
-        . Recordings:{' '}
         <Link to="/conversations" className="text-primary underline">
-          Call Recordings
+          Call history
         </Link>
-        .
+        {' · '}
+        <Link to="/workflows" className="text-primary underline">
+          Call flow
+        </Link>
+        {' · '}
+        <Link to="/integrations" className="text-primary underline">
+          Integrations
+        </Link>
       </p>
     </div>
   )

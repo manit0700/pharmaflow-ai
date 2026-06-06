@@ -1,0 +1,21 @@
+{
+  "PORT": "4002",
+  "NODE_ENV": "development",
+  "DATABASE_URL": "file:./dev.db",
+  "TWILIO_ACCOUNT_SID": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "TWILIO_API_KEY_SID": "SKxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "TWILIO_API_KEY_SECRET": "your_api_key_secret_here",
+  "TWILIO_AUTH_TOKEN": "",
+  "TWILIO_PHONE_NUMBER": "+16825551234",
+  "PHARMACY_STAFF_PHONE_NUMBER": "+16825551234",
+  "AUTO_CALL_TEST_MODE": "true",
+  "NGROK_AUTHTOKEN": "",
+  "PUBLIC_BASE_URL": "http://localhost:4002",
+  "ENABLE_SMS_FOLLOWUP": "false",
+  "PHARMACY_NAME": "Premium Family Pharmacy",
+  "TWILIO_VOICE": "Polly.Joanna",
+  "TWILIO_LANGUAGE": "en-US",
+  "CALL_MODE": "dtmf",
+  "OPENAI_API_KEY": "",
+  "CALL_AI_MODEL": "gpt-4o-mini"
+}

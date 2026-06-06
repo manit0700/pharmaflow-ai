@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js'
 export const tasksRouter = Router()
 
 tasksRouter.get('/tasks', async (_req, res) => {
-  const tasks = await prisma.staffTask.findMany({ orderBy: { createdAt: 'desc' } })
+  const tasks = await prisma.staffTask.findMany({ orderBy: { createdAt: 'desc' } }).catch(() => [])
   res.json(tasks)
 })
 

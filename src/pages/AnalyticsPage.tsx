@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import {
   Area,
   AreaChart,
@@ -6,8 +7,6 @@ import {
   CartesianGrid,
   Cell,
   Legend,
-  Line,
-  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -16,168 +15,157 @@ import {
   YAxis,
 } from 'recharts'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  aiVsHuman,
-  analyticsSeries,
-  channelMix,
-  completionByTemplate,
-  escalationReasons,
-  workflowTemplates,
-} from '@/data/mockData'
+import { fetchAnalytics, type AnalyticsResponse } from '@/utils/api'
+import { Skeleton } from '@/components/ui/skeleton'
+
+const emptyAnalytics: AnalyticsResponse = {
+  totalJobs: 0,
+  attempted: 0,
+  completed: 0,
+  escalated: 0,
+  withPatientResponse: 0,
+  byReason: [],
+  byStatus: [],
+  series: [],
+  aiVsHuman: [],
+  channelMix: [],
+  completionByReason: [],
+}
 
 export function AnalyticsPage() {
-  const requestByDay = analyticsSeries.map((d) => ({
+  const [data, setData] = useState<AnalyticsResponse>(emptyAnalytics)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchAnalytics()
+      .then(setData)
+      .catch(() => setData(emptyAnalytics))
+      .finally(() => setLoading(false))
+    const id = setInterval(() => {
+      fetchAnalytics().then(setData).catch(() => {})
+    }, 15000)
+    return () => clearInterval(id)
+  }, [])
+
+  const series = data.series.map((d) => ({
     date: d.date.slice(5),
-    refill: d.refill,
-    status: d.status,
-    faq: d.faq,
-    transfer: d.transfer,
+    calls: d.calls,
+    completed: d.completed,
+    escalations: d.escalations,
   }))
 
-  const escalationTrend = analyticsSeries.map((d) => ({
-    date: d.date.slice(5),
-    escalations: d.escalation,
-  }))
+  const pieData = data.aiVsHuman.filter((d) => d.value > 0)
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Skeleton className="h-64" />
+          <Skeleton className="h-64" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
-        <p className="text-sm text-muted-foreground">Outbound campaign performance and connect rates</p>
+        <p className="text-sm text-muted-foreground">
+          Live stats from your call queue — {data.totalJobs} jobs, {data.attempted} dialed
+        </p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>AI vs human resolution</CardTitle>
-            <CardDescription>Share of work completed without staff</CardDescription>
-          </CardHeader>
-          <CardContent className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={aiVsHuman} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={80}>
-                  {aiVsHuman.map((entry) => (
-                    <Cell key={entry.name} fill={entry.fill} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Channel mix</CardTitle>
-            <CardDescription>Voice vs SMS volume</CardDescription>
-          </CardHeader>
-          <CardContent className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={channelMix}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="value" fill="#0d9488" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Request type volume by day</CardTitle>
-          </CardHeader>
-          <CardContent className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={requestByDay}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Area type="monotone" dataKey="refill" stackId="1" stroke="#0d9488" fill="#0d9488" fillOpacity={0.4} />
-                <Area type="monotone" dataKey="status" stackId="1" stroke="#0891b2" fill="#0891b2" fillOpacity={0.4} />
-                <Area type="monotone" dataKey="faq" stackId="1" stroke="#64748b" fill="#64748b" fillOpacity={0.3} />
-                <Area type="monotone" dataKey="transfer" stackId="1" stroke="#0e7490" fill="#0e7490" fillOpacity={0.3} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Escalation trend (7 days)</CardTitle>
-          </CardHeader>
-          <CardContent className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={escalationTrend}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Line type="monotone" dataKey="escalations" stroke="#d97706" strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Template completion rate</CardTitle>
-          </CardHeader>
-          <CardContent className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={completionByTemplate} layout="vertical" margin={{ left: 10 }}>
-                <XAxis type="number" domain={[0, 100]} />
-                <YAxis dataKey="name" type="category" width={90} tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Bar dataKey="rate" fill="#0d9488" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 sm:grid-cols-4">
+        {[
+          { label: 'Total patients', value: data.totalJobs },
+          { label: 'Calls attempted', value: data.attempted },
+          { label: 'Patient answers', value: data.withPatientResponse },
+          { label: 'Staff follow-ups', value: data.escalated },
+        ].map((s) => (
+          <Card key={s.label}>
+            <CardContent className="p-4">
+              <p className="text-xs text-muted-foreground">{s.label}</p>
+              <p className="text-2xl font-semibold">{s.value}</p>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      {data.totalJobs === 0 ? (
         <Card>
-          <CardHeader>
-            <CardTitle>Top escalation reasons</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {escalationReasons.map((e) => (
-              <div key={e.reason} className="flex items-center gap-3">
-                <div className="h-2 flex-1 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="h-full bg-warning rounded-full"
-                    style={{ width: `${(e.count / 34) * 100}%` }}
-                  />
-                </div>
-                <span className="text-sm w-40 shrink-0">{e.reason}</span>
-                <span className="text-sm font-medium">{e.count}</span>
-              </div>
-            ))}
+          <CardContent className="p-8 text-center text-sm text-muted-foreground">
+            No call data yet. Add patients on the dashboard and place outbound calls to see analytics.
           </CardContent>
         </Card>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Resolution mix</CardTitle>
+              <CardDescription>Answers captured vs staff follow-up</CardDescription>
+            </CardHeader>
+            <CardContent className="h-64">
+              {pieData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={80}>
+                      {pieData.map((entry) => (
+                        <Cell key={entry.name} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-sm text-muted-foreground pt-8 text-center">No completed calls yet</p>
+              )}
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Most used workflow templates</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {workflowTemplates.map((t) => (
-              <div key={t.id} className="flex justify-between border-b border-border pb-2">
-                <div>
-                  <p className="text-sm font-medium">{t.name}</p>
-                  <p className="text-xs text-muted-foreground">{t.description}</p>
-                </div>
-                <span className="text-sm font-semibold text-primary">{t.usageCount}</span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Calls by reason</CardTitle>
+              <CardDescription>Distribution of outbound call types</CardDescription>
+            </CardHeader>
+            <CardContent className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.completionByReason}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="reason" tick={{ fontSize: 10 }} />
+                  <YAxis allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="total" fill="#6366f1" name="Total" />
+                  <Bar dataKey="completed" fill="#22c55e" name="With answer" />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          {series.length > 0 && (
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Activity over time</CardTitle>
+                <CardDescription>Jobs created and completed per day</CardDescription>
+              </CardHeader>
+              <CardContent className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={series}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis allowDecimals={false} />
+                    <Tooltip />
+                    <Area type="monotone" dataKey="calls" stackId="1" stroke="#6366f1" fill="#6366f1" fillOpacity={0.3} name="Jobs" />
+                    <Area type="monotone" dataKey="completed" stackId="2" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} name="Answered" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
     </div>
   )
 }

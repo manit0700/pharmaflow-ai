@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model CallJob {
+  id                  String   @id @default(cuid())
+  uploadBatchId       String?
+  uploadBatch         UploadBatch? @relation(fields: [uploadBatchId], references: [id])
+  patientName         String
+  phoneNumber         String
+  dob                 String
+  medicationName      String
+  callReason          String
+  notes               String?
+  validationStatus    String   @default("pending")
+  validationError     String?
+  callStatus          String   @default("queued")
+  twilioCallSid       String?
+  callAttemptedAt     DateTime?
+  callCompletedAt     DateTime?
+  callDuration        Int?
+  patientResponse     String?
+  aiSummary           String?
+  errorMessage        String?
+  transcriptJson      String?
+  messagesJson        String?
+  aiConfidence        Float?
+  resolutionStatus    String?
+  resolvedAt          DateTime?
+  resolvedBy          String?
+  staffNotes          String?
+  safetyFlagsJson     String?
+  duplicateOfId       String?
+  doNotCall           Boolean  @default(false)
+  staffFollowUpNeeded Boolean  @default(false)
+  followUpReason      String?
+  smsStatus           String   @default("none")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  staffTasks StaffTask[]
+  callEvents CallEvent[]
+}
+
+model UploadBatch {
+  id             String   @id @default(cuid())
+  filename       String
+  imported       Int      @default(0)
+  valid          Int      @default(0)
+  invalid        Int      @default(0)
+  duplicateCount Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  callJobs CallJob[]
+}
+
+model DoNotCallEntry {
+  id          String   @id @default(cuid())
+  phoneNumber String   @unique
+  patientName String?
+  reason      String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+}
+
+model StaffTask {
+  id             String   @id @default(cuid())
+  callJobId      String?
+  callJob        CallJob? @relation(fields: [callJobId], references: [id])
+  patientName    String
+  phoneNumber    String
+  medicationName String?
+  taskType       String
+  priority       String   @default("normal")
+  status         String   @default("open")
+  notes          String?
+  aiSummary      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model InboundCall {
+  id             String   @id @default(cuid())
+  callerPhone    String
+  intent         String?
+  patientName    String?
+  dob            String?
+  medicationName String?
+  transcript     String?
+  summary        String?
+  status         String   @default("active")
+  handoffReason  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model CallEvent {
+  id            String   @id @default(cuid())
+  callJobId     String?
+  callJob       CallJob? @relation(fields: [callJobId], references: [id])
+  twilioCallSid String?
+  eventType     String
+  eventPayload  String?
+  createdAt     DateTime @default(now())
+}

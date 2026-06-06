@@ -22,8 +22,8 @@ export function CallOpsToolbar({
       {health?.ok && health.apiVersion !== 2 && (
         <Badge variant="destructive">Restart API (add patient needs update)</Badge>
       )}
-      {health?.ok && health.apiVersion === 2 && health.testMode && (
-        <Badge variant="secondary">Simulated calls (test mode)</Badge>
+      {health?.ok && health.testMode && (
+        <Badge variant="secondary">Simulated calls</Badge>
       )}
       {health?.ok && health.twilioAccount?.type && (
         <Badge variant={health.twilioAccount.type === 'Trial' ? 'warning' : 'success'}>
@@ -31,7 +31,14 @@ export function CallOpsToolbar({
           {health.twilioAccount.friendlyName ? ` · ${health.twilioAccount.friendlyName}` : ''}
         </Badge>
       )}
-      {health?.testMode && <Badge variant="secondary">Test call mode</Badge>}
+      {health?.callMode && (
+        <Badge variant={health.callMode === 'ai' ? 'default' : 'secondary'}>
+          {health.callMode === 'ai' ? 'AI calls' : 'Keypad (DTMF)'}
+        </Badge>
+      )}
+      {health?.callMode === 'ai' && health.aiCallConfigured === false && (
+        <Badge variant="destructive">OpenAI key missing</Badge>
+      )}
       {health?.twilioConfigured && <Badge variant="default">Twilio connected</Badge>}
       {health?.ok && !health.testMode && health.liveCallReadiness?.ready && (
         <Badge variant="success">Live Twilio ready</Badge>

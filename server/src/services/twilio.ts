@@ -1,4 +1,3 @@
-import twilio from 'twilio'
 import { config } from '../config.js'
 import type { CallReason } from '../config.js'
 import {
@@ -6,8 +5,8 @@ import {
   getTwilioCredentialIssues,
   resolveTwilioAuthMode,
 } from '../lib/twilioAuth.js'
-import { greetingForOutbound, scriptForReason } from './script.js'
-import { safeVoicemailMessage } from './safety.js'
+import { buildInboundTwiml } from './twilioFlow.js'
+import { encodeCallbackState } from './callbackState.js'
 
 function getClient() {
   return getTwilioClient()
@@ -27,60 +26,7 @@ export interface LiveCallReadiness {
   publicBaseUrl: string
 }
 
-// Twilio SDK expects a fixed SayVoice union; env allows any Polly.* string
-function sayAttrs() {
-  return { voice: config.twilioVoice } as { voice: 'Polly.Joanna' }
-}
-
-export function buildOutboundTwiml(callReason: CallReason, step: string): string {
-  const vr = new twilio.twiml.VoiceResponse()
-  const pharmacy = config.pharmacyName
-  const attrs = sayAttrs()
-
-  if (step === 'greeting') {
-    vr.say(attrs, greetingForOutbound(pharmacy))
-    const gather = vr.gather({
-      numDigits: 8,
-      action: `${config.publicBaseUrl}/api/twilio/voice-response?step=dob`,
-      method: 'POST',
-      timeout: 8,
-    })
-    gather.say(attrs, scriptForReason(callReason, false))
-    vr.say(attrs, 'We did not receive a response. Goodbye.')
-  } else if (step === 'verified') {
-    vr.say(attrs, scriptForReason(callReason, true))
-    vr.say(attrs, 'Thank you. Goodbye.')
-  } else if (step === 'voicemail') {
-    vr.say(attrs, safeVoicemailMessage(pharmacy))
-  } else if (step === 'transfer') {
-    if (config.staffPhone) {
-      vr.say(attrs, 'Connecting you to our pharmacy team.')
-      vr.dial(config.staffPhone)
-    } else {
-      vr.say(attrs, 'Please call the pharmacy during business hours.')
-    }
-  }
-
-  return vr.toString()
-}
-
-export function buildInboundTwiml(): string {
-  const vr = new twilio.twiml.VoiceResponse()
-  const attrs = sayAttrs()
-  vr.say(attrs, `Thank you for calling ${config.pharmacyName}.`)
-  const gather = vr.gather({
-    numDigits: 1,
-    action: `${config.publicBaseUrl}/api/twilio/voice-response?flow=inbound`,
-    method: 'POST',
-    timeout: 6,
-  })
-  gather.say(
-    attrs,
-    'Press 1 for refill, 2 for prescription status, 3 for delivery, 4 for store hours, or 0 for staff.',
-  )
-  vr.say(attrs, 'Goodbye.')
-  return vr.toString()
-}
+export { buildInboundTwiml } from './twilioFlow.js'
 
 export function getLiveCallReadiness(): LiveCallReadiness {
   const issues: string[] = []
@@ -96,10 +42,13 @@ export function getLiveCallReadiness(): LiveCallReadiness {
     issues.push('Set PUBLIC_BASE_URL to your ngrok HTTPS URL before live calls.')
   } else if (/localhost|127\.0\.0\.1/i.test(base)) {
     issues.push(
-      'PUBLIC_BASE_URL cannot be localhost for live calls. Run ngrok http 4002, paste the HTTPS URL into server/.env, and restart the API.',
+      'PUBLIC_BASE_URL cannot be localhost for live calls. Run ngrok http 4002, paste the HTTPS URL into server/local.config.json, and restart the API.',
     )
   } else if (!base.startsWith('https://')) {
     issues.push('PUBLIC_BASE_URL must be a public HTTPS URL, for example https://abc123.ngrok-free.app.')
+  }
+  if (config.callMode === 'ai' && !config.openaiApiKey?.trim()) {
+    issues.push('CALL_MODE=ai requires OPENAI_API_KEY in server/local.config.json or server/.env.')
   }
 
   return { ready: issues.length === 0, issues, publicBaseUrl: base }
@@ -117,7 +66,7 @@ function assertPublicWebhookBase(): void {
   if (/localhost|127\.0\.0\.1/i.test(base)) {
     throw new Error(
       'PUBLIC_BASE_URL cannot be localhost — Twilio cannot reach your computer. ' +
-        'Run: ngrok http 4002 then set PUBLIC_BASE_URL=https://YOUR-ID.ngrok-free.app in server/.env and restart the API.',
+        'Run: ngrok http 4002 then set PUBLIC_BASE_URL=https://YOUR-ID.ngrok-free.app in server/local.config.json and restart the API.',
     )
   }
   if (!base.startsWith('https://')) {
@@ -150,13 +99,13 @@ function twilioCallErrorMessage(err: unknown): string {
   if (code === '21205' || /not a valid url|url is not a valid url/i.test(msg)) {
     return (
       'Twilio rejected the webhook URL. PUBLIC_BASE_URL must be your current ngrok HTTPS URL, ' +
-      'for example https://abc123.ngrok-free.app. Restart the API after changing server/.env.'
+      'for example https://abc123.ngrok-free.app. Restart the API after changing server/local.config.json.'
     )
   }
   if (/not a valid URL|localhost/i.test(msg)) {
     return (
       'Twilio needs a public HTTPS webhook URL, not localhost. ' +
-      'Run ngrok http 4002, copy the https URL into PUBLIC_BASE_URL in server/.env, restart the API.'
+      'Run ngrok http 4002, copy the https URL into PUBLIC_BASE_URL in server/local.config.json, restart the API.'
     )
   }
   if (status === '403' || msg.includes('403')) {
@@ -176,6 +125,9 @@ export async function startOutboundCall(params: {
   to: string
   callJobId: string
   callReason: CallReason
+  patientName: string
+  dob: string
+  medicationName: string
 }): Promise<{ sid: string; status: string } | { testMode: true; sid: string }> {
   if (config.autoCallTestMode) {
     return { testMode: true, sid: `TEST_${params.callJobId}_${Date.now()}` }
@@ -187,13 +139,34 @@ export async function startOutboundCall(params: {
   assertLiveCallReadiness()
   assertPublicWebhookBase()
 
+  const initialStep = config.callMode === 'ai' ? 'ai_greeting' : 'greeting'
+  const mode = config.callMode
+  const urlParams = new URLSearchParams({
+    callJobId: params.callJobId,
+    step: initialStep,
+    reason: params.callReason,
+    mode,
+    state: encodeCallbackState({
+      id: params.callJobId,
+      patientName: params.patientName,
+      phoneNumber: params.to,
+      dob: params.dob,
+      medicationName: params.medicationName,
+      callReason: params.callReason,
+    }),
+  })
+  const callbackParams = new URLSearchParams({
+    callJobId: params.callJobId,
+    state: urlParams.get('state') ?? '',
+  })
+
   try {
     const call = await client.calls.create({
       to: params.to,
       from: config.twilioPhoneNumber,
-      url: `${config.publicBaseUrl}/api/twilio/voice-response?callJobId=${params.callJobId}&step=greeting&reason=${params.callReason}`,
+      url: `${config.publicBaseUrl}/api/twilio/voice-response?${urlParams.toString()}`,
       method: 'POST',
-      statusCallback: `${config.publicBaseUrl}/api/twilio/status`,
+      statusCallback: `${config.publicBaseUrl}/api/twilio/status?${callbackParams.toString()}`,
       statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
       statusCallbackMethod: 'POST',
       machineDetection: 'Enable',

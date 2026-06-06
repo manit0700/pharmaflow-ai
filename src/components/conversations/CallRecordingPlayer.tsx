@@ -129,7 +129,7 @@ export function CallRecordingPlayer({
       recordedAt: recording.recordedAt,
       consentCaptured: recording.consentCaptured,
       transcript,
-      note: 'Demo export — not a real audio file. Use Play for voice replay.',
+      note: 'Call metadata export. Use Play for transcript voice replay until Twilio recording URL is linked.',
     }
     const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' })
     const a = document.createElement('a')
@@ -150,7 +150,7 @@ export function CallRecordingPlayer({
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {recording.consentCaptured && <Badge variant="success">Consent on file</Badge>}
-          <span>Retain {recording.retentionDays}d (demo)</span>
+          <span>Retain {recording.retentionDays}d</span>
         </div>
       </div>
 
@@ -197,7 +197,7 @@ export function CallRecordingPlayer({
       </div>
 
       <p className="text-[10px] text-muted-foreground">
-        Demo playback uses your browser voice engine to read the transcript aloud. Waveform is simulated.
+        Playback reads the stored transcript aloud. Waveform reflects call duration until Twilio recording is attached.
       </p>
 
       {transcript.length > 0 && (

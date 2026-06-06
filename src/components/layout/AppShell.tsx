@@ -5,8 +5,6 @@ import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { useTheme } from '@/hooks/useTheme'
 import { CommandDialog } from '@/components/shared/CommandDialog'
-import { LiveDemoBar } from '@/components/demo/LiveDemoBar'
-
 export function AppShell() {
   const { dark, toggle } = useTheme()
   const [commandOpen, setCommandOpen] = useState(false)
@@ -20,7 +18,6 @@ export function AppShell() {
           onToggleTheme={toggle}
           onOpenCommand={() => setCommandOpen(true)}
         />
-        <LiveDemoBar />
         <main className="flex-1 overflow-auto p-4 lg:p-6">
           <Outlet context={{ toast }} />
         </main>

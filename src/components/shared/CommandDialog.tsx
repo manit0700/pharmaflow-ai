@@ -8,11 +8,12 @@ interface CommandDialogProps {
 }
 
 const routes = [
-  { label: 'Outbound Workflows', path: '/workflows' },
   { label: 'Dashboard', path: '/dashboard' },
-  { label: 'Outbound Calls', path: '/conversations' },
+  { label: 'Call Recordings', path: '/calls' },
+  { label: 'Call flow', path: '/workflows' },
+  { label: 'Call history', path: '/conversations' },
   { label: 'Integrations', path: '/integrations' },
-  { label: 'Compliance', path: '/compliance' },
+  { label: 'Audit log', path: '/compliance' },
   { label: 'Analytics', path: '/analytics' },
 ]
 

@@ -99,16 +99,16 @@ export const prescriptions: PrescriptionRecord[] = [
 ]
 
 export const auditEvents: AuditEvent[] = [
-  { id: 'a1', timestamp: ago(5), actor: 'workflow-engine', action: 'PHI_ACCESS', resource: 'prescription/rx1', severity: 'info', details: 'Status lookup for patient M. Johnson' },
-  { id: 'a2', timestamp: ago(12), actor: 'ai-agent', action: 'CONSENT_CHECK', resource: 'call/c-1042', severity: 'info', details: 'Verbal consent recorded for SMS follow-up' },
-  { id: 'a3', timestamp: ago(18), actor: 'staff@pharmacy', action: 'MANUAL_REVIEW', resource: 'conversation/c-1038', severity: 'warning', details: 'Escalated clinical question reviewed' },
-  { id: 'a4', timestamp: ago(25), actor: 'workflow-engine', action: 'REDACTION', resource: 'transcript/c-1035', severity: 'info', details: 'DOB masked in exported log' },
-  { id: 'a5', timestamp: ago(40), actor: 'system', action: 'WORKFLOW_FAILED', resource: 'run/wr-2018', severity: 'critical', details: 'PMS timeout during refill update' },
-  { id: 'a6', timestamp: ago(55), actor: 'ai-agent', action: 'ESCALATION', resource: 'queue/clinical', severity: 'warning', details: 'Patient requested pharmacist — routed to Clinical Triage' },
-  { id: 'a7', timestamp: ago(70), actor: 'workflow-engine', action: 'AUDIT_LOG', resource: 'refill-batch', severity: 'info', details: 'Nightly refill reminder batch completed (214 sent)' },
-  { id: 'a8', timestamp: ago(90), actor: 'admin', action: 'ACCESS_REVIEW', resource: 'role/pharmacist', severity: 'info', details: 'Quarterly access review marker applied (demo)' },
-  { id: 'a9', timestamp: ago(120), actor: 'ai-agent', action: 'TRANSFER_INTAKE', resource: 'ticket/t-442', severity: 'info', details: 'Transfer from CVS #2841 — staff notified' },
-  { id: 'a10', timestamp: ago(150), actor: 'system', action: 'RETENTION', resource: 'logs/archive', severity: 'info', details: 'Mock retention policy: transcripts > 90 days archived' },
+  { id: 'a1', timestamp: '2026-06-04T22:32:00-05:00', actor: 'workflow-engine', action: 'PHI_ACCESS', resource: 'prescription/rx1', severity: 'info', details: 'Status lookup for patient M. Johnson' },
+  { id: 'a2', timestamp: '2026-06-04T22:25:00-05:00', actor: 'ai-agent', action: 'CONSENT_CHECK', resource: 'call/c-1042', severity: 'info', details: 'Verbal consent recorded for SMS follow-up' },
+  { id: 'a3', timestamp: '2026-06-04T22:19:00-05:00', actor: 'staff@pharmacy', action: 'MANUAL_REVIEW', resource: 'conversation/c-1038', severity: 'warning', details: 'Escalated clinical question reviewed' },
+  { id: 'a4', timestamp: '2026-06-04T22:12:00-05:00', actor: 'workflow-engine', action: 'REDACTION', resource: 'transcript/c-1035', severity: 'info', details: 'DOB masked in exported log' },
+  { id: 'a5', timestamp: '2026-06-04T21:57:00-05:00', actor: 'system', action: 'WORKFLOW_FAILED', resource: 'run/wr-2018', severity: 'critical', details: 'PMS timeout during refill update' },
+  { id: 'a6', timestamp: '2026-06-04T21:42:00-05:00', actor: 'ai-agent', action: 'ESCALATION', resource: 'queue/clinical', severity: 'warning', details: 'Patient requested pharmacist — routed to Clinical Triage' },
+  { id: 'a7', timestamp: '2026-06-04T21:27:00-05:00', actor: 'workflow-engine', action: 'AUDIT_LOG', resource: 'refill-batch', severity: 'info', details: 'Nightly refill reminder batch completed (214 sent)' },
+  { id: 'a8', timestamp: '2026-06-04T21:07:00-05:00', actor: 'admin', action: 'ACCESS_REVIEW', resource: 'role/pharmacist', severity: 'info', details: 'Quarterly access review marker applied (demo)' },
+  { id: 'a9', timestamp: '2026-06-04T20:37:00-05:00', actor: 'ai-agent', action: 'TRANSFER_INTAKE', resource: 'ticket/t-442', severity: 'info', details: 'Transfer from CVS #2841 — staff notified' },
+  { id: 'a10', timestamp: '2026-06-04T20:07:00-05:00', actor: 'system', action: 'RETENTION', resource: 'logs/archive', severity: 'info', details: 'Mock retention policy: transcripts > 90 days archived' },
 ]
 
 export const notifications: NotificationItem[] = [

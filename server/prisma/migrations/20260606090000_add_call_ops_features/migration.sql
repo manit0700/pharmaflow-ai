@@ -1,0 +1,26 @@
+ALTER TABLE "CallJob" ADD COLUMN "uploadBatchId" TEXT;
+ALTER TABLE "CallJob" ADD COLUMN "resolvedAt" DATETIME;
+ALTER TABLE "CallJob" ADD COLUMN "resolvedBy" TEXT;
+ALTER TABLE "CallJob" ADD COLUMN "staffNotes" TEXT;
+ALTER TABLE "CallJob" ADD COLUMN "safetyFlagsJson" TEXT;
+ALTER TABLE "CallJob" ADD COLUMN "duplicateOfId" TEXT;
+ALTER TABLE "CallJob" ADD COLUMN "doNotCall" BOOLEAN NOT NULL DEFAULT false;
+
+CREATE TABLE "UploadBatch" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "filename" TEXT NOT NULL,
+  "imported" INTEGER NOT NULL DEFAULT 0,
+  "valid" INTEGER NOT NULL DEFAULT 0,
+  "invalid" INTEGER NOT NULL DEFAULT 0,
+  "duplicateCount" INTEGER NOT NULL DEFAULT 0,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE "DoNotCallEntry" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "phoneNumber" TEXT NOT NULL UNIQUE,
+  "patientName" TEXT,
+  "reason" TEXT,
+  "createdBy" TEXT,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

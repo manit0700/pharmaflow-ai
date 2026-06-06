@@ -1,43 +1,55 @@
+import { RefreshCw } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { integrations } from '@/data/mockData'
+import { CallStatusBanners } from '@/components/calls/CallStatusBanners'
+import { useLiveIntegrations } from '@/hooks/useLiveIntegrations'
 import { formatTime } from '@/lib/utils'
 import { ArrowRight, Phone, Bot, Database, Bell } from 'lucide-react'
 
 export function IntegrationsPage() {
+  const { integrations, health, loading, refresh } = useLiveIntegrations()
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Integrations</h1>
-        <p className="text-sm text-muted-foreground">
-          Connected channels and systems powering pharmacy AI workflows
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Integrations</h1>
+          <p className="text-sm text-muted-foreground">
+            Live connection status from your PC API — Twilio, OpenAI, database, webhooks
+          </p>
+        </div>
+        <Button variant="outline" size="sm" disabled={loading} onClick={() => void refresh()}>
+          <RefreshCw className="h-3.5 w-3.5" />
+          Refresh
+        </Button>
       </div>
+
+      <CallStatusBanners health={health} loading={loading} />
 
       <Card className="border-primary/20 bg-primary/5">
         <CardHeader>
-          <CardTitle className="text-base">System topology</CardTitle>
-          <CardDescription>How patient channels flow through PharmaFlow AI</CardDescription>
+          <CardTitle className="text-base">Outbound call path</CardTitle>
+          <CardDescription>How a call moves through your stack</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap items-center justify-center gap-2 py-4 text-sm font-medium">
             <span className="flex items-center gap-1 rounded-md border border-border bg-card px-3 py-2">
-              <Phone className="h-4 w-4 text-primary" /> Outbound dialer
+              <Phone className="h-4 w-4 text-primary" /> Twilio dial
             </span>
             <ArrowRight className="h-4 w-4 text-muted-foreground" />
             <span className="flex items-center gap-1 rounded-md border border-border bg-card px-3 py-2">
-              <Bot className="h-4 w-4 text-primary" /> AI layer
+              <Bot className="h-4 w-4 text-primary" /> {health?.callMode === 'ai' ? 'AI + speech' : 'DTMF scripts'}
             </span>
             <ArrowRight className="h-4 w-4 text-muted-foreground" />
-            <span className="rounded-md border border-border bg-card px-3 py-2">Workflow engine</span>
+            <span className="rounded-md border border-border bg-card px-3 py-2">PharmaFlow API</span>
             <ArrowRight className="h-4 w-4 text-muted-foreground" />
             <span className="flex items-center gap-1 rounded-md border border-border bg-card px-3 py-2">
-              <Database className="h-4 w-4" /> PMS / staff
+              <Database className="h-4 w-4" /> SQLite
             </span>
             <ArrowRight className="h-4 w-4 text-muted-foreground" />
             <span className="flex items-center gap-1 rounded-md border border-border bg-card px-3 py-2">
-              <Bell className="h-4 w-4" /> Logging
+              <Bell className="h-4 w-4" /> Staff tasks
             </span>
           </div>
         </CardContent>
@@ -64,19 +76,8 @@ export function IntegrationsPage() {
             <CardContent className="space-y-3">
               <p className="text-sm text-muted-foreground">{i.summary}</p>
               <p className="text-xs text-muted-foreground">
-                Last sync: {i.lastSync === '—' ? '—' : formatTime(i.lastSync)}
+                Checked: {i.lastSync === '—' ? '—' : formatTime(i.lastSync)}
               </p>
-              <div className="flex gap-2">
-                <Button size="sm" variant={i.connected ? 'outline' : 'default'} disabled={i.connected}>
-                  {i.connected ? 'Connected' : 'Connect'}
-                </Button>
-                <Button size="sm" variant="ghost">
-                  Test
-                </Button>
-                <Button size="sm" variant="ghost">
-                  Edit
-                </Button>
-              </div>
             </CardContent>
           </Card>
         ))}

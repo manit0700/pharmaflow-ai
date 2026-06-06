@@ -7,5 +7,6 @@ server/prisma/dev.db-journal
 .env
 .env.local
 server/.env
+server/local.config.json
 node_modules
 dist

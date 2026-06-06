@@ -24,7 +24,7 @@ export function buildRecording(
     waveformPeaks: generateWaveformPeaks(96, patientFirstName.length),
     consentCaptured: true,
     retentionDays: 90,
-    channelLabel: 'Outbound voice (Twilio mock)',
+    channelLabel: 'Outbound voice (Twilio)',
   }
 }
 
