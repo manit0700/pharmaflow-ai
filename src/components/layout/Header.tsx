@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { fetchTasks, type StaffTask } from '@/utils/api'
+import { useFollowUpContext } from '@/context/FollowUpContext'
 
 interface HeaderProps {
   dark: boolean
@@ -13,6 +14,7 @@ interface HeaderProps {
 }
 
 export function Header({ dark, onToggleTheme, onOpenCommand }: HeaderProps) {
+  const { openCount } = useFollowUpContext()
   const [tasks, setTasks] = useState<StaffTask[]>([])
 
   useEffect(() => {
@@ -26,7 +28,8 @@ export function Header({ dark, onToggleTheme, onOpenCommand }: HeaderProps) {
     return () => clearInterval(id)
   }, [])
 
-  const openTasks = tasks.filter((t) => t.status === 'open')
+  const apiOpenTasks = tasks.filter((t) => t.status === 'open')
+  const bellCount = openCount > 0 ? openCount : apiOpenTasks.length
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border bg-card px-4 lg:px-6">
@@ -44,11 +47,11 @@ export function Header({ dark, onToggleTheme, onOpenCommand }: HeaderProps) {
           {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
         <Button variant="ghost" size="icon" className="relative" asChild aria-label="Staff follow-ups">
-          <Link to="/dashboard">
+          <Link to="/follow-ups">
             <Bell className="h-4 w-4" />
-            {openTasks.length > 0 && (
+            {bellCount > 0 && (
               <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
-                {openTasks.length}
+                {bellCount}
               </span>
             )}
           </Link>

@@ -42,4 +42,5 @@ export interface CallRecordingRecord {
   recommendation: string
   keyTags: string[]
   transcript: TranscriptLine[]
+  relatedFollowUpTaskId?: string
 }

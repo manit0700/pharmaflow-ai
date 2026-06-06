@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AlertCircle,
   CalendarDays,
@@ -17,6 +18,7 @@ import {
   UserRoundCheck,
   Volume2,
   XCircle,
+  ExternalLink,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -89,6 +91,8 @@ function exportBlob(filename: string, payload: unknown) {
 }
 
 export function CallRecordingDashboard() {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [calls, setCalls] = useState<CallRecordingRecord[]>(CALL_RECORDINGS_MOCK)
   const [selectedId, setSelectedId] = useState<string>(CALL_RECORDINGS_MOCK[0]?.id ?? '')
   const [search, setSearch] = useState('')
@@ -103,6 +107,13 @@ export function CallRecordingDashboard() {
   const [playing, setPlaying] = useState(false)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
   const [progressSec, setProgressSec] = useState(0)
+
+  useEffect(() => {
+    const callId = searchParams.get('callId')
+    if (callId && calls.some((c) => c.id === callId)) {
+      setSelectedId(callId)
+    }
+  }, [searchParams, calls])
 
   const filtered = useMemo(
     () => filterAndSortCalls(calls, { search, status, workflow, review, date, sort }),
@@ -165,6 +176,14 @@ export function CallRecordingDashboard() {
         status: selected.status === 'escalated' ? 'completed' : selected.status,
       })
     }
+  }
+
+  const openFollowUp = (call: CallRecordingRecord) => {
+    if (call.relatedFollowUpTaskId) {
+      navigate(`/follow-ups?task=${call.relatedFollowUpTaskId}`)
+      return
+    }
+    navigate(`/follow-ups?callId=${call.id}`)
   }
 
   const simulateRefresh = () => {
@@ -586,6 +605,10 @@ export function CallRecordingDashboard() {
                         <CardDescription>Call marked for staff review</CardDescription>
                       </CardHeader>
                       <CardContent className="flex flex-wrap gap-2">
+                        <Button size="sm" onClick={() => openFollowUp(selected)}>
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          Open Follow-Up
+                        </Button>
                         <Button size="sm" variant="outline" onClick={() => applyFollowup('mark_reviewed')}>
                           Mark Reviewed
                         </Button>

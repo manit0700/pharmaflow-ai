@@ -10,6 +10,7 @@ interface CommandDialogProps {
 const routes = [
   { label: 'Dashboard', path: '/dashboard' },
   { label: 'Call Recordings', path: '/calls' },
+  { label: 'Follow-Up Queue', path: '/follow-ups' },
   { label: 'Call flow', path: '/workflows' },
   { label: 'Call history', path: '/conversations' },
   { label: 'Integrations', path: '/integrations' },
