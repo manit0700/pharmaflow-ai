@@ -130,6 +130,12 @@ async function initializeSqliteRuntimeDb(): Promise<void> {
   await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "safetyFlagsJson" TEXT')
   await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "duplicateOfId" TEXT')
   await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "doNotCall" BOOLEAN NOT NULL DEFAULT false')
+  await ignoreDuplicateColumn('ALTER TABLE "StaffTask" ADD COLUMN "assignedTeam" TEXT NOT NULL DEFAULT \'Unassigned\'')
+  await ignoreDuplicateColumn('ALTER TABLE "StaffTask" ADD COLUMN "dueDate" TEXT')
+  await ignoreDuplicateColumn('ALTER TABLE "StaffTask" ADD COLUMN "dueTime" TEXT NOT NULL DEFAULT \'15:00\'')
+  await ignoreDuplicateColumn('ALTER TABLE "StaffTask" ADD COLUMN "sourceWorkflow" TEXT')
+  await ignoreDuplicateColumn('ALTER TABLE "StaffTask" ADD COLUMN "issueSummary" TEXT')
+  await ignoreDuplicateColumn('ALTER TABLE "StaffTask" ADD COLUMN "activityJson" TEXT')
 }
 
 async function initializePostgresRuntimeDb(): Promise<void> {
@@ -242,6 +248,17 @@ async function initializePostgresRuntimeDb(): Promise<void> {
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_phoneNumber_idx" ON "CallJob" ("phoneNumber")')
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_twilioCallSid_idx" ON "CallJob" ("twilioCallSid")')
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallEvent_callJobId_idx" ON "CallEvent" ("callJobId")')
+
+  await prisma.$executeRawUnsafe(
+    'ALTER TABLE "StaffTask" ADD COLUMN IF NOT EXISTS "assignedTeam" TEXT NOT NULL DEFAULT \'Unassigned\'',
+  ).catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "StaffTask" ADD COLUMN IF NOT EXISTS "dueDate" TEXT').catch(() => undefined)
+  await prisma.$executeRawUnsafe(
+    'ALTER TABLE "StaffTask" ADD COLUMN IF NOT EXISTS "dueTime" TEXT NOT NULL DEFAULT \'15:00\'',
+  ).catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "StaffTask" ADD COLUMN IF NOT EXISTS "sourceWorkflow" TEXT').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "StaffTask" ADD COLUMN IF NOT EXISTS "issueSummary" TEXT').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "StaffTask" ADD COLUMN IF NOT EXISTS "activityJson" TEXT').catch(() => undefined)
 }
 
 export function shouldInitializeRuntimeDb(): boolean {

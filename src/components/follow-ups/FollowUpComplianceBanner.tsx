@@ -1,15 +1,24 @@
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Shield, Lock, Database, Users } from 'lucide-react'
+import type { FollowUpDataSource } from '@/context/FollowUpContext'
 
-export function FollowUpComplianceBanner() {
+export function FollowUpComplianceBanner({ dataSource }: { dataSource?: FollowUpDataSource }) {
   return (
     <Card className="border-primary/20 bg-primary/5">
       <CardContent className="space-y-3 p-4">
-        <p className="text-sm">
-          <strong>Demo data only.</strong> Do not use real patient information in this environment. Follow-up
-          activity may contain PHI in production and should be accessed only by authorized pharmacy staff.
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="flex-1 text-sm">
+            <strong>Demo data only.</strong> Do not use real patient information in this environment. Follow-up
+            activity may contain PHI in production and should be accessed only by authorized pharmacy staff.
+          </p>
+          {dataSource === 'api' && (
+            <Badge variant="success">Live task queue</Badge>
+          )}
+          {dataSource === 'mock' && (
+            <Badge variant="warning">Demo queue (no API tasks yet)</Badge>
+          )}
+        </div>
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline" className="gap-1">
             <Shield className="h-3 w-3" aria-hidden />

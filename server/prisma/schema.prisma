@@ -80,6 +80,12 @@ model StaffTask {
   status         String   @default("open")
   notes          String?
   aiSummary      String?
+  assignedTeam   String   @default("Unassigned")
+  dueDate        String?
+  dueTime        String   @default("15:00")
+  sourceWorkflow String?
+  issueSummary   String?
+  activityJson   String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 }

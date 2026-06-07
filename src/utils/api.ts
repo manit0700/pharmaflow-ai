@@ -83,13 +83,31 @@ export interface DoNotCallEntry {
 
 export interface StaffTask {
   id: string
+  callJobId?: string | null
   patientName: string
   phoneNumber: string
+  medicationName?: string | null
   taskType: string
   priority: string
   status: string
   notes: string | null
+  aiSummary?: string | null
+  assignedTeam?: string | null
+  dueDate?: string | null
+  dueTime?: string | null
+  sourceWorkflow?: string | null
+  issueSummary?: string | null
+  activityJson?: string | null
   createdAt: string
+  updatedAt?: string
+  callJob?: {
+    id: string
+    callReason: string
+    patientResponse: string | null
+    callCompletedAt: string | null
+    callAttemptedAt: string | null
+    followUpReason: string | null
+  } | null
 }
 
 export interface HealthResponse {
@@ -341,10 +359,46 @@ export async function fetchAuditEvents(): Promise<AuditResponse> {
 
 export async function updateTask(
   id: string,
-  data: { status?: string; notes?: string },
+  data: {
+    status?: string
+    notes?: string
+    priority?: string
+    assignedTeam?: string
+    dueDate?: string
+    dueTime?: string
+    sourceWorkflow?: string
+    issueSummary?: string
+    activityJson?: string
+    aiSummary?: string
+  },
 ): Promise<StaffTask> {
   return request<StaffTask>(`/tasks/${id}`, {
     method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+}
+
+export async function createStaffTask(
+  data: {
+    patientName: string
+    phoneNumber: string
+    taskType: string
+    priority?: string
+    status?: string
+    notes?: string | null
+    aiSummary?: string | null
+    callJobId?: string | null
+    assignedTeam?: string
+    dueDate?: string | null
+    dueTime?: string
+    sourceWorkflow?: string | null
+    issueSummary?: string | null
+    activityJson?: string | null
+  },
+): Promise<StaffTask> {
+  return request<StaffTask>('/tasks', {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })

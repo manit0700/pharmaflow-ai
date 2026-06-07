@@ -31,11 +31,11 @@ import type { AssignedTeam, CreateTaskInput, FollowUpFilters } from '@/types/fol
 type DrawerMode = 'create' | 'note' | 'assign' | 'reschedule' | null
 
 export function FollowUpDashboard() {
-  const { tasks, updateTask, addTask } = useFollowUpContext()
+  const { tasks, updateTask, addTask, loading, error, refresh, dataSource } = useFollowUpContext()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const [selectedId, setSelectedId] = useState<string | null>(tasks[0]?.id ?? null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [filters, setFilters] = useState<FollowUpFilters>({
     search: '',
     priorityTab: 'all',
@@ -47,8 +47,11 @@ export function FollowUpDashboard() {
   })
   const [drawer, setDrawer] = useState<DrawerMode>(null)
   const [drawerTaskId, setDrawerTaskId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [errored, setErrored] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+
+  useEffect(() => {
+    if (!selectedId && tasks[0]?.id) setSelectedId(tasks[0].id)
+  }, [tasks, selectedId])
 
   const filtered = useMemo(() => filterAndSortTasks(tasks, filters), [tasks, filters])
   const selected = filtered.find((t) => t.id === selectedId) ?? filtered[0] ?? tasks.find((t) => t.id === selectedId) ?? null
@@ -62,7 +65,6 @@ export function FollowUpDashboard() {
     const callParam = searchParams.get('callId')
     if (taskParam) {
       setSelectedId(taskParam)
-      setFilters((f) => ({ ...f, search: '' }))
     } else if (callParam) {
       const linked = tasks.find((t) => t.relatedCallId === callParam)
       if (linked) setSelectedId(linked.id)
@@ -73,64 +75,82 @@ export function FollowUpDashboard() {
     setFilters((f) => ({ ...f, ...patch }))
   }, [])
 
-  const appendActivity = (taskId: string, activity: ReturnType<typeof createActivity>) => {
-    const task = tasks.find((t) => t.id === taskId)
-    if (!task) return
-    const now = new Date().toISOString()
-    updateTask(taskId, {
-      activity: [...task.activity, activity],
-      lastActivityAt: now,
-    })
-  }
-
-  const handleCreateTask = (input: CreateTaskInput) => {
+  const handleCreateTask = async (input: CreateTaskInput) => {
     const task = createTaskFromInput(input)
-    addTask(task)
-    setSelectedId(task.id)
-    setSearchParams({ task: task.id })
+    const created = await addTask(task)
+    const id = created?.id ?? task.id
+    setSelectedId(id)
+    setSearchParams({ task: id })
     toast.success('Follow-up task created')
   }
 
-  const handleAddNote = (note: string) => {
+  const handleAddNote = async (note: string) => {
     if (!drawerTask) return
-    appendActivity(drawerTask.id, createActivity('note', note))
+    const activity = createActivity('note', note)
+    await updateTask(drawerTask.id, {
+      activity: [...drawerTask.activity, activity],
+      lastActivityAt: activity.timestamp,
+    })
     toast.success('Note added')
   }
 
-  const handleAssign = (team: AssignedTeam) => {
+  const handleAssign = async (team: AssignedTeam) => {
     if (!drawerTask) return
-    updateTask(drawerTask.id, { assignedTeam: team })
-    appendActivity(drawerTask.id, createActivity('assigned', `Assigned to ${team}.`))
+    const activity = createActivity('assigned', `Assigned to ${team}.`)
+    await updateTask(drawerTask.id, {
+      assignedTeam: team,
+      activity: [...drawerTask.activity, activity],
+      lastActivityAt: activity.timestamp,
+    })
     toast.success(`Assigned to ${team}`)
   }
 
-  const handleReschedule = (date: string, time: string, reason: string) => {
+  const handleReschedule = async (date: string, time: string, reason: string) => {
     if (!drawerTask) return
-    updateTask(drawerTask.id, { dueDate: date, dueTime: time })
-    appendActivity(
-      drawerTask.id,
-      createActivity('rescheduled', `Rescheduled to ${formatDueDisplay({ ...drawerTask, dueDate: date, dueTime: time })}. Reason: ${reason}`),
+    const activity = createActivity(
+      'rescheduled',
+      `Rescheduled to ${formatDueDisplay({ ...drawerTask, dueDate: date, dueTime: time })}. Reason: ${reason}`,
     )
+    await updateTask(drawerTask.id, {
+      dueDate: date,
+      dueTime: time,
+      activity: [...drawerTask.activity, activity],
+      lastActivityAt: activity.timestamp,
+    })
     toast.success('Callback rescheduled')
   }
 
-  const handleMarkComplete = (taskId: string) => {
-    updateTask(taskId, { status: 'Completed' })
-    appendActivity(taskId, createActivity('completed', 'Task marked complete.'))
+  const handleMarkComplete = async (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId)
+    if (!task) return
+    const activity = createActivity('completed', 'Task marked complete.')
+    await updateTask(taskId, {
+      status: 'Completed',
+      activity: [...task.activity, activity],
+      lastActivityAt: activity.timestamp,
+    })
     toast.success('Task completed')
   }
 
-  const handleReopen = () => {
+  const handleReopen = async () => {
     if (!selected) return
-    updateTask(selected.id, { status: 'Open' })
-    appendActivity(selected.id, createActivity('status_changed', 'Task reopened.'))
+    const activity = createActivity('status_changed', 'Task reopened.')
+    await updateTask(selected.id, {
+      status: 'Open',
+      activity: [...selected.activity, activity],
+      lastActivityAt: activity.timestamp,
+    })
     toast.success('Task reopened')
   }
 
-  const handleStartTask = () => {
+  const handleStartTask = async () => {
     if (!selected) return
-    updateTask(selected.id, { status: 'In Progress' })
-    appendActivity(selected.id, createActivity('status_changed', 'Status changed to In Progress.'))
+    const activity = createActivity('status_changed', 'Status changed to In Progress.')
+    await updateTask(selected.id, {
+      status: 'In Progress',
+      activity: [...selected.activity, activity],
+      lastActivityAt: activity.timestamp,
+    })
     toast.success('Task started')
   }
 
@@ -148,13 +168,13 @@ export function FollowUpDashboard() {
     setDrawerTaskId(taskId ?? selected?.id ?? null)
   }
 
-  const simulateRefresh = () => {
-    setLoading(true)
-    setErrored(false)
-    setTimeout(() => setLoading(false), 800)
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    await refresh()
+    setRefreshing(false)
   }
 
-  if (loading) {
+  if (loading && tasks.length === 0) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-24" />
@@ -168,13 +188,13 @@ export function FollowUpDashboard() {
     )
   }
 
-  if (errored) {
+  if (error && tasks.length === 0) {
     return (
       <Card className="border-destructive/30 bg-destructive/5">
         <CardContent className="space-y-3 p-6 text-sm">
           <p className="font-medium">We hit a temporary error loading the follow-up queue.</p>
-          <p className="text-muted-foreground">Please retry. Your demo data is safe in local state.</p>
-          <Button onClick={simulateRefresh}>
+          <p className="text-muted-foreground">{error}</p>
+          <Button onClick={() => void handleRefresh()}>
             <RefreshCw className="h-4 w-4" />
             Retry
           </Button>
@@ -188,10 +208,16 @@ export function FollowUpDashboard() {
       <FollowUpHeader
         onCreateTask={() => openDrawer('create')}
         onExport={() => exportQueueJson(filtered)}
-        onRefresh={simulateRefresh}
+        onRefresh={() => void handleRefresh()}
+        refreshing={refreshing}
       />
 
-      <FollowUpComplianceBanner />
+      <FollowUpComplianceBanner dataSource={dataSource} />
+      {error && (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
       <FollowUpSummaryCards metrics={metrics} />
       <FollowUpFiltersBar filters={filters} onChange={patchFilters} />
       <FollowUpAnalyticsMini analytics={analytics} />
@@ -208,7 +234,7 @@ export function FollowUpDashboard() {
             onAssign={(id) => openDrawer('assign', id)}
             onAddNote={(id) => openDrawer('note', id)}
             onReschedule={(id) => openDrawer('reschedule', id)}
-            onMarkComplete={handleMarkComplete}
+            onMarkComplete={(id) => void handleMarkComplete(id)}
             onCreateTask={() => openDrawer('create')}
           />
         </section>
@@ -216,31 +242,39 @@ export function FollowUpDashboard() {
         <section aria-label="Task details">
           <FollowUpDetailPanel
             task={selected}
-            onStartTask={handleStartTask}
+            onStartTask={() => void handleStartTask()}
             onAssign={() => openDrawer('assign')}
             onAddNote={() => openDrawer('note')}
             onReschedule={() => openDrawer('reschedule')}
-            onMarkComplete={() => selected && handleMarkComplete(selected.id)}
-            onReopen={handleReopen}
+            onMarkComplete={() => selected && void handleMarkComplete(selected.id)}
+            onReopen={() => void handleReopen()}
             onViewCall={handleViewCall}
           />
         </section>
       </div>
 
-      <CreateTaskDrawer open={drawer === 'create'} onClose={() => setDrawer(null)} onSave={handleCreateTask} />
-      <AddNoteDrawer open={drawer === 'note'} onClose={() => setDrawer(null)} onSave={handleAddNote} />
+      <CreateTaskDrawer
+        open={drawer === 'create'}
+        onClose={() => setDrawer(null)}
+        onSave={(input) => void handleCreateTask(input)}
+      />
+      <AddNoteDrawer
+        open={drawer === 'note'}
+        onClose={() => setDrawer(null)}
+        onSave={(note) => void handleAddNote(note)}
+      />
       <AssignStaffDrawer
         open={drawer === 'assign'}
         currentTeam={drawerTask?.assignedTeam ?? 'Unassigned'}
         onClose={() => setDrawer(null)}
-        onSave={handleAssign}
+        onSave={(team) => void handleAssign(team)}
       />
       <RescheduleDrawer
         open={drawer === 'reschedule'}
         currentDate={drawerTask?.dueDate ?? new Date().toISOString().slice(0, 10)}
         currentTime={drawerTask?.dueTime ?? '15:00'}
         onClose={() => setDrawer(null)}
-        onSave={handleReschedule}
+        onSave={(date, time, reason) => void handleReschedule(date, time, reason)}
       />
     </div>
   )
