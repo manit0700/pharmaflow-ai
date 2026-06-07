@@ -5,12 +5,13 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { CallJobDetailPanel } from '@/components/calls/CallJobDetailPanel'
 import type { CallJob, HealthResponse } from '@/utils/api'
-import { canStartCall, isActiveCallStatus } from '@/utils/callStatus'
+import { canStartCall, isActiveCallStatus, isScheduledRetry } from '@/utils/callStatus'
 import { getRetryRecommendation } from '@/utils/callOutcome'
 import { latestPatientReply } from '@/utils/liveTranscript'
 
 const CALL_STATUS_OPTIONS = [
   'queued',
+  'scheduled',
   'queued_live',
   'dialing',
   'ringing',
@@ -419,6 +420,24 @@ export function CallJobsTable({
                     <Badge className="mt-1" variant="warning">
                       Retry recommended
                     </Badge>
+                  )}
+                  {isScheduledRetry(j.callStatus, j.retryStatus) && (
+                    <Badge className="mt-1" variant="outline">
+                      Scheduled retry
+                    </Badge>
+                  )}
+                  {j.scheduledFor && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      Due {new Date(j.scheduledFor).toLocaleString()}
+                    </div>
+                  )}
+                  {j.retryAttempt ? (
+                    <div className="mt-1 text-xs text-muted-foreground">Retry attempt {j.retryAttempt}</div>
+                  ) : null}
+                  {j.retryReason && (
+                    <div className="mt-1 max-w-72 truncate text-xs text-muted-foreground" title={j.retryReason}>
+                      {j.retryReason}
+                    </div>
                   )}
                   {j.errorMessage && (
                     <div className="max-w-72 truncate text-xs text-destructive" title={j.errorMessage}>

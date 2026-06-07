@@ -40,6 +40,15 @@ model CallJob {
   staffFollowUpNeeded Boolean  @default(false)
   followUpReason      String?
   smsStatus           String   @default("none")
+  parentCallJobId     String?
+  retryOfCallJobId    String?
+  retryAttempt        Int      @default(0)
+  maxRetryAttempts    Int      @default(3)
+  scheduledFor        DateTime?
+  retryReason         String?
+  retryStatus         String   @default("none")
+  createdFromOutcome  String?
+  relatedTaskId       String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
@@ -49,6 +58,10 @@ model CallJob {
   @@index([callStatus])
   @@index([twilioCallSid])
   @@index([createdAt])
+  @@index([retryOfCallJobId])
+  @@index([parentCallJobId])
+  @@index([scheduledFor])
+  @@index([retryStatus])
 }
 
 model UploadBatch {

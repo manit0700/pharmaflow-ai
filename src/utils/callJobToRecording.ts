@@ -20,6 +20,7 @@ function mapRecordingStatus(callStatus: string): CallStatus {
   if (status === 'busy') return 'busy'
   if (status === 'voicemail') return 'voicemail'
   if (status === 'cancelled' || status === 'canceled') return 'canceled'
+  if (status === 'scheduled') return 'no_answer'
   return 'failed'
 }
 
@@ -77,6 +78,7 @@ export function callJobToRecording(job: CallJob): CallRecordingRecord {
     keyTags: [
       job.callStatus.replace(/_/g, ' '),
       outcome,
+      ...(job.retryStatus === 'scheduled' ? ['scheduled retry'] : []),
       ...(retry.shouldRetry ? ['retry recommended'] : []),
     ],
     transcript: parseTranscript(job.transcriptJson),

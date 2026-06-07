@@ -179,13 +179,14 @@ export function useCallOperations() {
     setCallingId(id)
     try {
       if (!currentJob) throw new Error('Call job not found in browser state. Refresh and try again.')
-      const job = await retryCall(currentJob)
+      const result = await retryCall(currentJob, { placeImmediately: true })
+      const updatedJobs = [result.originalCallJob, result.retryCallJob].filter(Boolean) as CallJob[]
       setJobs((prev) => {
-        const next = mergeJobs([job], prev)
+        const next = mergeJobs(updatedJobs, prev)
         writeLocalJobs(next)
         return next
       })
-      toast.success('Retry initiated — watch Live calls below')
+      toast.success(result.existing ? 'A retry is already scheduled for this call.' : 'Retry initiated — watch Live calls below')
       setTimeout(() => setCallingId(null), 5000)
       await refresh()
     } catch (e) {

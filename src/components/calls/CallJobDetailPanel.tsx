@@ -251,6 +251,43 @@ export function CallJobDetailPanel({
           <p className="text-xs text-muted-foreground font-mono">Twilio SID: {job.twilioCallSid}</p>
         )}
 
+        {(job.retryOfCallJobId || job.parentCallJobId) && (
+          <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs space-y-1">
+            {job.retryOfCallJobId && (
+              <p>
+                Retry of call <span className="font-mono">{job.retryOfCallJobId.slice(0, 8)}…</span>
+              </p>
+            )}
+            {job.scheduledFor && (
+              <p>Retry scheduled for {new Date(job.scheduledFor).toLocaleString()}</p>
+            )}
+            {job.retryStatus && <p>Retry status: {job.retryStatus.replace(/_/g, ' ')}</p>}
+          </div>
+        )}
+
+        {job.retryHistory && job.retryHistory.length > 0 && (
+          <div>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">Retry history</p>
+            <div className="max-h-48 overflow-auto rounded-md border border-border/60">
+              {job.retryHistory.map((entry) => (
+                <div key={entry.id} className="border-b border-border/50 px-3 py-2 text-xs last:border-b-0">
+                  <div className="flex justify-between gap-2">
+                    <span className="font-medium">
+                      Attempt {entry.retryAttempt || '0'} · {entry.finalOutcome}
+                    </span>
+                    <span className="text-muted-foreground">{entry.retryStatus || entry.callStatus}</span>
+                  </div>
+                  {entry.scheduledFor && (
+                    <p className="mt-1 text-muted-foreground">
+                      Scheduled {new Date(entry.scheduledFor).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {job.callEvents && job.callEvents.length > 0 && (
           <div>
             <p className="mb-2 text-xs font-medium text-muted-foreground">Attempt history</p>

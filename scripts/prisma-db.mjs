@@ -85,6 +85,16 @@ async function runSqliteRuntimeMigration() {
   await addColumn('ALTER TABLE "StaffTask" ADD COLUMN "activityJson" TEXT')
   await addColumn('ALTER TABLE "StaffTask" ADD COLUMN "completedAt" DATETIME')
 
+  await addColumn('ALTER TABLE "CallJob" ADD COLUMN "parentCallJobId" TEXT')
+  await addColumn('ALTER TABLE "CallJob" ADD COLUMN "retryOfCallJobId" TEXT')
+  await addColumn('ALTER TABLE "CallJob" ADD COLUMN "retryAttempt" INTEGER NOT NULL DEFAULT 0')
+  await addColumn('ALTER TABLE "CallJob" ADD COLUMN "maxRetryAttempts" INTEGER NOT NULL DEFAULT 3')
+  await addColumn('ALTER TABLE "CallJob" ADD COLUMN "scheduledFor" DATETIME')
+  await addColumn('ALTER TABLE "CallJob" ADD COLUMN "retryReason" TEXT')
+  await addColumn('ALTER TABLE "CallJob" ADD COLUMN "retryStatus" TEXT NOT NULL DEFAULT \'none\'')
+  await addColumn('ALTER TABLE "CallJob" ADD COLUMN "createdFromOutcome" TEXT')
+  await addColumn('ALTER TABLE "CallJob" ADD COLUMN "relatedTaskId" TEXT')
+
   await exec('CREATE INDEX IF NOT EXISTS "StaffTask_status_idx" ON "StaffTask" ("status")')
   await exec('CREATE INDEX IF NOT EXISTS "StaffTask_priority_idx" ON "StaffTask" ("priority")')
   await exec('CREATE INDEX IF NOT EXISTS "StaffTask_dueDate_idx" ON "StaffTask" ("dueDate")')
@@ -92,6 +102,10 @@ async function runSqliteRuntimeMigration() {
   await exec('CREATE INDEX IF NOT EXISTS "CallJob_callStatus_idx" ON "CallJob" ("callStatus")')
   await exec('CREATE INDEX IF NOT EXISTS "CallJob_twilioCallSid_idx" ON "CallJob" ("twilioCallSid")')
   await exec('CREATE INDEX IF NOT EXISTS "CallJob_createdAt_idx" ON "CallJob" ("createdAt")')
+  await exec('CREATE INDEX IF NOT EXISTS "CallJob_retryOfCallJobId_idx" ON "CallJob" ("retryOfCallJobId")')
+  await exec('CREATE INDEX IF NOT EXISTS "CallJob_parentCallJobId_idx" ON "CallJob" ("parentCallJobId")')
+  await exec('CREATE INDEX IF NOT EXISTS "CallJob_scheduledFor_idx" ON "CallJob" ("scheduledFor")')
+  await exec('CREATE INDEX IF NOT EXISTS "CallJob_retryStatus_idx" ON "CallJob" ("retryStatus")')
   await exec('CREATE INDEX IF NOT EXISTS "TaskActivity_taskId_idx" ON "TaskActivity" ("taskId")')
   await exec('CREATE INDEX IF NOT EXISTS "AuditEvent_entityType_entityId_idx" ON "AuditEvent" ("entityType", "entityId")')
 

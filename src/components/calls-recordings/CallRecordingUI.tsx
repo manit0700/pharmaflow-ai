@@ -30,9 +30,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn, formatDuration, formatTime } from '@/lib/utils'
 import { CALL_RECORDINGS_MOCK, createDemoCallRecord } from '@/data/callRecordingsMock'
 import type { CallRecordingRecord, CallStatus, FollowUpAction, OutcomeFilter, Sentiment, WorkflowType } from '@/types/callRecordings'
-import { createFollowUpFromCall, fetchCallJobs, retryCall, type CallJob } from '@/utils/api'
+import { createFollowUpFromCall, fetchCallJobs, fetchHealth, scheduleRetryCall, type CallJob, type ScheduleRetryInput } from '@/utils/api'
 import { mergeRecordingSources } from '@/utils/callJobToRecording'
 import { outcomeBadgeVariant, type FinalCallOutcome } from '@/utils/callOutcome'
+import { RetryScheduleModal } from './RetryScheduleModal'
 import {
   DATE_OPTIONS,
   OUTCOME_FILTER_OPTIONS,
@@ -114,6 +115,8 @@ export function CallRecordingDashboard() {
   const [liveJobCount, setLiveJobCount] = useState(0)
   const [liveJobsById, setLiveJobsById] = useState<Record<string, CallJob>>({})
   const [actionBusy, setActionBusy] = useState<string | null>(null)
+  const [retryModalJob, setRetryModalJob] = useState<CallJob | null>(null)
+  const [health, setHealth] = useState<import('@/utils/api').HealthResponse | null>(null)
   const [playing, setPlaying] = useState(false)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
   const [progressSec, setProgressSec] = useState(0)
@@ -129,10 +132,11 @@ export function CallRecordingDashboard() {
     if (!silent) setLoading(true)
     setErrored(false)
     try {
-      const jobs = await fetchCallJobs()
+      const [jobs, h] = await Promise.all([fetchCallJobs(), fetchHealth()])
       const byId = Object.fromEntries(jobs.map((job) => [job.id, job]))
       setLiveJobsById(byId)
       setLiveJobCount(jobs.length)
+      setHealth(h)
       setCalls(mergeRecordingSources(jobs, CALL_RECORDINGS_MOCK))
     } catch {
       setErrored(true)
@@ -218,19 +222,31 @@ export function CallRecordingDashboard() {
     navigate(`/follow-ups?callId=${call.id}`)
   }
 
-  const handleRetryCall = async (call: CallRecordingRecord) => {
+  const handleRetryCall = (call: CallRecordingRecord) => {
     const job = liveJobsById[call.id]
     if (!job) {
-      toast.message('Retry is available for live call jobs from the dashboard queue.')
+      toast.message('Retry scheduling is available for live call jobs from Postgres.')
       return
     }
-    setActionBusy(call.id)
+    setRetryModalJob(job)
+  }
+
+  const submitRetrySchedule = async (input: ScheduleRetryInput) => {
+    if (!retryModalJob) return
+    setActionBusy(retryModalJob.id)
     try {
-      await retryCall(job)
-      toast.success(`Retry started for ${call.patientMasked}`)
+      const result = await scheduleRetryCall(retryModalJob.id, input)
+      toast.success(
+        result.existing
+          ? 'A retry is already scheduled for this call.'
+          : input.placeImmediately
+            ? 'Retry call initiated.'
+            : 'Retry call scheduled.',
+      )
+      setRetryModalJob(null)
       await loadCalls(true)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Retry failed')
+      toast.error(e instanceof Error ? e.message : 'Retry scheduling failed')
     } finally {
       setActionBusy(null)
     }
@@ -649,10 +665,10 @@ export function CallRecordingDashboard() {
                             size="sm"
                             variant="outline"
                             disabled={actionBusy === selected.id || !liveJobsById[selected.id]}
-                            onClick={() => void handleRetryCall(selected)}
+                            onClick={() => handleRetryCall(selected)}
                           >
                             <RefreshCw className="h-3.5 w-3.5" />
-                            Retry call
+                            Schedule retry
                           </Button>
                         )}
                         <Button
@@ -663,6 +679,32 @@ export function CallRecordingDashboard() {
                           <ExternalLink className="h-3.5 w-3.5" />
                           {selected.relatedFollowUpTaskId ? 'Open follow-up task' : 'Create follow-up task'}
                         </Button>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {selected.liveSource === 'api' && liveJobsById[selected.id]?.retryHistory && liveJobsById[selected.id]!.retryHistory!.length > 0 && (
+                    <Card className="border-border/70">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Retry history</CardTitle>
+                        <CardDescription>Original attempt and scheduled retries for this call chain</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {liveJobsById[selected.id]!.retryHistory!.map((entry) => (
+                          <div key={entry.id} className="rounded-md border border-border/60 p-2 text-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="font-medium">
+                                Attempt {entry.retryAttempt || 'original'} · {entry.finalOutcome}
+                              </span>
+                              <Badge variant="outline">{entry.retryStatus || entry.callStatus}</Badge>
+                            </div>
+                            {entry.scheduledFor && (
+                              <p className="mt-1 text-muted-foreground">
+                                Scheduled: {new Date(entry.scheduledFor).toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                        ))}
                       </CardContent>
                     </Card>
                   )}
@@ -851,6 +893,15 @@ export function CallRecordingDashboard() {
           </div>
         </div>
       )}
+
+      <RetryScheduleModal
+        open={Boolean(retryModalJob)}
+        job={retryModalJob}
+        health={health}
+        busy={Boolean(retryModalJob && actionBusy === retryModalJob.id)}
+        onClose={() => setRetryModalJob(null)}
+        onSubmit={submitRetrySchedule}
+      />
     </div>
   )
 }

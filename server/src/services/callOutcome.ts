@@ -51,6 +51,7 @@ export function getFinalOutcome(job: CallJobLike): FinalCallOutcome {
   if (status === 'cancelled' || status === 'canceled') return 'Canceled'
   if (ACTIVE_STATUSES.has(status)) return 'In Progress'
   if (status === 'invalid') return 'Needs Review'
+  if (status === 'scheduled') return 'Queued'
   return 'Queued'
 }
 

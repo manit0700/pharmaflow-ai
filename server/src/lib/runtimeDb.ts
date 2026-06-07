@@ -46,6 +46,15 @@ async function initializeSqliteRuntimeDb(): Promise<void> {
       "staffFollowUpNeeded" BOOLEAN NOT NULL DEFAULT false,
       "followUpReason" TEXT,
       "smsStatus" TEXT NOT NULL DEFAULT 'none',
+      "parentCallJobId" TEXT,
+      "retryOfCallJobId" TEXT,
+      "retryAttempt" INTEGER NOT NULL DEFAULT 0,
+      "maxRetryAttempts" INTEGER NOT NULL DEFAULT 3,
+      "scheduledFor" DATETIME,
+      "retryReason" TEXT,
+      "retryStatus" TEXT NOT NULL DEFAULT 'none',
+      "createdFromOutcome" TEXT,
+      "relatedTaskId" TEXT,
       "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL
     )
@@ -170,6 +179,15 @@ async function initializeSqliteRuntimeDb(): Promise<void> {
   await ignoreDuplicateColumn('ALTER TABLE "StaffTask" ADD COLUMN "issueSummary" TEXT')
   await ignoreDuplicateColumn('ALTER TABLE "StaffTask" ADD COLUMN "activityJson" TEXT')
   await ignoreDuplicateColumn('ALTER TABLE "StaffTask" ADD COLUMN "completedAt" DATETIME')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "parentCallJobId" TEXT')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "retryOfCallJobId" TEXT')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "retryAttempt" INTEGER NOT NULL DEFAULT 0')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "maxRetryAttempts" INTEGER NOT NULL DEFAULT 3')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "scheduledFor" DATETIME')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "retryReason" TEXT')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "retryStatus" TEXT NOT NULL DEFAULT \'none\'')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "createdFromOutcome" TEXT')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "relatedTaskId" TEXT')
 
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "StaffTask_status_idx" ON "StaffTask" ("status")')
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "StaffTask_priority_idx" ON "StaffTask" ("priority")')
@@ -178,6 +196,10 @@ async function initializeSqliteRuntimeDb(): Promise<void> {
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_callStatus_idx" ON "CallJob" ("callStatus")')
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_twilioCallSid_idx" ON "CallJob" ("twilioCallSid")')
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_createdAt_idx" ON "CallJob" ("createdAt")')
+  await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_retryOfCallJobId_idx" ON "CallJob" ("retryOfCallJobId")')
+  await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_parentCallJobId_idx" ON "CallJob" ("parentCallJobId")')
+  await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_scheduledFor_idx" ON "CallJob" ("scheduledFor")')
+  await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_retryStatus_idx" ON "CallJob" ("retryStatus")')
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "TaskActivity_taskId_idx" ON "TaskActivity" ("taskId")')
   await prisma.$executeRawUnsafe(
     'CREATE INDEX IF NOT EXISTS "AuditEvent_entityType_entityId_idx" ON "AuditEvent" ("entityType", "entityId")',
@@ -230,6 +252,15 @@ async function initializePostgresRuntimeDb(): Promise<void> {
       "staffFollowUpNeeded" BOOLEAN NOT NULL DEFAULT false,
       "followUpReason" TEXT,
       "smsStatus" TEXT NOT NULL DEFAULT 'none',
+      "parentCallJobId" TEXT,
+      "retryOfCallJobId" TEXT,
+      "retryAttempt" INTEGER NOT NULL DEFAULT 0,
+      "maxRetryAttempts" INTEGER NOT NULL DEFAULT 3,
+      "scheduledFor" TIMESTAMP(3),
+      "retryReason" TEXT,
+      "retryStatus" TEXT NOT NULL DEFAULT 'none',
+      "createdFromOutcome" TEXT,
+      "relatedTaskId" TEXT,
       "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
@@ -327,6 +358,10 @@ async function initializePostgresRuntimeDb(): Promise<void> {
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_callStatus_idx" ON "CallJob" ("callStatus")')
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_twilioCallSid_idx" ON "CallJob" ("twilioCallSid")')
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_createdAt_idx" ON "CallJob" ("createdAt")')
+  await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_retryOfCallJobId_idx" ON "CallJob" ("retryOfCallJobId")')
+  await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_parentCallJobId_idx" ON "CallJob" ("parentCallJobId")')
+  await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_scheduledFor_idx" ON "CallJob" ("scheduledFor")')
+  await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_retryStatus_idx" ON "CallJob" ("retryStatus")')
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallEvent_callJobId_idx" ON "CallEvent" ("callJobId")')
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "StaffTask_status_idx" ON "StaffTask" ("status")')
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "StaffTask_priority_idx" ON "StaffTask" ("priority")')
@@ -348,6 +383,19 @@ async function initializePostgresRuntimeDb(): Promise<void> {
   await prisma.$executeRawUnsafe('ALTER TABLE "StaffTask" ADD COLUMN IF NOT EXISTS "issueSummary" TEXT').catch(() => undefined)
   await prisma.$executeRawUnsafe('ALTER TABLE "StaffTask" ADD COLUMN IF NOT EXISTS "activityJson" TEXT').catch(() => undefined)
   await prisma.$executeRawUnsafe('ALTER TABLE "StaffTask" ADD COLUMN IF NOT EXISTS "completedAt" TIMESTAMP(3)').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "parentCallJobId" TEXT').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "retryOfCallJobId" TEXT').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "retryAttempt" INTEGER NOT NULL DEFAULT 0').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "maxRetryAttempts" INTEGER NOT NULL DEFAULT 3').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "scheduledFor" TIMESTAMP(3)').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "retryReason" TEXT').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "retryStatus" TEXT NOT NULL DEFAULT \'none\'').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "createdFromOutcome" TEXT').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "relatedTaskId" TEXT').catch(() => undefined)
+  await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_retryOfCallJobId_idx" ON "CallJob" ("retryOfCallJobId")').catch(() => undefined)
+  await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_parentCallJobId_idx" ON "CallJob" ("parentCallJobId")').catch(() => undefined)
+  await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_scheduledFor_idx" ON "CallJob" ("scheduledFor")').catch(() => undefined)
+  await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_retryStatus_idx" ON "CallJob" ("retryStatus")').catch(() => undefined)
 }
 
 export function shouldInitializeRuntimeDb(): boolean {

@@ -2,11 +2,15 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma.js'
 import { buildExportWorkbook, validateCallInput } from '../services/excel.js'
 import { formatScriptForPreview, getCallScript } from '../services/callScripts.js'
-import { buildAiSummary } from '../services/script.js'
-import { needsStaffFollowUp, normalizePhone } from '../services/safety.js'
-import { startOutboundCall } from '../services/twilio.js'
+import { normalizePhone } from '../services/safety.js'
 import { config, type CallReason } from '../config.js'
 import { scriptContextFromJob } from '../services/twilioFlow.js'
+import { runCall, type RunnableCallJob } from '../services/callExecution.js'
+import {
+  buildRetryEnrichment,
+  runDueScheduledRetries,
+  scheduleRetryCallJob,
+} from '../services/retrySchedule.js'
 import {
   getFinalOutcome,
   getRetryRecommendation,
@@ -51,7 +55,13 @@ callJobsRouter.get('/call-jobs', async (_req, res) => {
         staffTasks: { orderBy: { createdAt: 'desc' }, take: 10 },
       },
     })
-    res.json(jobs.map((job) => enrichCallJob(job)))
+    const retryMeta = await buildRetryEnrichment(jobs)
+    res.json(
+      jobs.map((job) => ({
+        ...enrichCallJob(job),
+        ...retryMeta.get(job.id),
+      })),
+    )
   } catch {
     res.json([])
   }
@@ -94,17 +104,6 @@ async function findSafetyFlags(params: {
   return { dnc, duplicate, flags }
 }
 
-function inBusinessHours(now = new Date()): boolean {
-  const localHour = Number(
-    new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/Chicago',
-      hour: 'numeric',
-      hour12: false,
-    }).format(now),
-  )
-  return localHour >= config.businessHoursStart && localHour < config.businessHoursEnd
-}
-
 const MANUAL_TERMINAL_STATUSES = new Set([
   'completed',
   'resolved',
@@ -115,6 +114,7 @@ const MANUAL_TERMINAL_STATUSES = new Set([
   'callback_requested',
   'escalated',
   'voicemail',
+  'scheduled',
 ])
 
 callJobsRouter.post('/call-jobs', async (req, res) => {
@@ -253,7 +253,11 @@ callJobsRouter.get('/call-jobs/:id', async (req, res) => {
     res.status(404).json({ error: 'Call job not found' })
     return
   }
-  res.json(job)
+  const retryMeta = await buildRetryEnrichment([job])
+  res.json({
+    ...enrichCallJob(job),
+    ...retryMeta.get(job.id),
+  })
 })
 
 callJobsRouter.get('/call-jobs/:id/script', async (req, res) => {
@@ -360,22 +364,6 @@ callJobsRouter.post('/call-jobs/:id/resolve', async (req, res) => {
   }
 })
 
-const ACTIVE_CALL_STATUSES = new Set(['dialing', 'queued_live', 'ringing', 'in_progress'])
-
-type RunnableCallJob = {
-  id: string
-  patientName: string
-  phoneNumber: string
-  dob: string
-  medicationName: string
-  callReason: string
-  validationStatus: string
-  callStatus: string
-  twilioCallSid: string | null
-  callAttemptedAt?: Date | string | null
-  doNotCall?: boolean | null
-}
-
 function fallbackJobFromBody(jobId: string, body: Record<string, unknown>): RunnableCallJob | null {
   const raw = body.job
   if (!raw || typeof raw !== 'object') return null
@@ -409,136 +397,6 @@ async function createCallEventIfPossible(data: Parameters<typeof prisma.callEven
   } catch {
     // Non-durable Vercel demo DB fallback.
   }
-}
-
-async function createStaffTaskIfPossible(data: Parameters<typeof prisma.staffTask.create>[0]['data']) {
-  try {
-    await prisma.staffTask.create({ data })
-  } catch {
-    // Non-durable Vercel demo DB fallback.
-  }
-}
-
-function isRecentlyAttempted(value: Date | string | null | undefined): boolean {
-  if (!value) return false
-  const attemptedAt = new Date(value).getTime()
-  if (Number.isNaN(attemptedAt)) return false
-  return Date.now() - attemptedAt < 90_000
-}
-
-async function runCall(jobId: string, fallbackJob?: RunnableCallJob | null, options: { force?: boolean } = {}) {
-  const job = (await prisma.callJob.findUnique({ where: { id: jobId } }).catch(() => null)) ?? fallbackJob
-  if (!job) throw new Error('Call job not found')
-  if (job.validationStatus !== 'valid') throw new Error('Job failed validation')
-  if (job.doNotCall) throw new Error('This number is on the do-not-call list.')
-  const normalizedPhone = normalizePhone(job.phoneNumber) ?? job.phoneNumber
-  const dnc = await prisma.doNotCallEntry.findUnique({ where: { phoneNumber: normalizedPhone } }).catch(() => null)
-  if (dnc) throw new Error(`This number is on the do-not-call list: ${dnc.reason ?? 'listed number'}`)
-  if (config.enforceBusinessHours && !inBusinessHours()) {
-    throw new Error(`Outside pharmacy calling hours (${config.businessHoursStart}:00-${config.businessHoursEnd}:00 CT).`)
-  }
-  if (!options.force && job.twilioCallSid && ACTIVE_CALL_STATUSES.has(job.callStatus) && isRecentlyAttempted(job.callAttemptedAt)) {
-    throw new Error('A call was just started for this job. Wait about 90 seconds, or use Retry to force a new call.')
-  }
-
-  await updateCallJobIfPresent(jobId, {
-    callStatus: config.autoCallTestMode ? 'simulating' : 'dialing',
-    callAttemptedAt: new Date(),
-    errorMessage: null,
-  })
-
-  try {
-    const result = config.autoCallTestMode
-      ? { testMode: true as const, sid: `TEST_${job.id}_${Date.now()}` }
-        : await startOutboundCall({
-            to: job.phoneNumber,
-            callJobId: job.id,
-            callReason: job.callReason as CallReason,
-            patientName: job.patientName,
-            dob: job.dob,
-            medicationName: job.medicationName,
-          })
-
-    const isTest = 'testMode' in result && result.testMode
-    const sid = result.sid
-
-    const testResponse =
-      config.callMode === 'ai'
-        ? 'Test mode — AI call simulated'
-        : (getCallScript(job.callReason as CallReason).options[0]?.patientResponse ?? 'Test mode simulation')
-    const aiSummary = isTest ? buildAiSummary(job.callReason as CallReason, testResponse) : null
-    const updated = {
-      ...job,
-      callStatus: isTest ? 'completed' : 'queued_live',
-      twilioCallSid: sid,
-      callAttemptedAt: new Date(),
-      callCompletedAt: isTest ? new Date() : null,
-      callDuration: isTest ? 45 : null,
-      patientResponse: isTest ? testResponse : null,
-      aiSummary,
-      errorMessage: null,
-    }
-
-    await updateCallJobIfPresent(jobId, {
-      callStatus: updated.callStatus,
-      twilioCallSid: sid,
-      callAttemptedAt: updated.callAttemptedAt,
-      callCompletedAt: updated.callCompletedAt,
-      callDuration: updated.callDuration,
-      patientResponse: updated.patientResponse,
-      aiSummary,
-      errorMessage: null,
-    })
-
-    await createCallEventIfPossible({
-      callJobId: jobId,
-      twilioCallSid: sid,
-      eventType: isTest ? 'test_call_simulated' : 'call_initiated',
-      eventPayload: JSON.stringify({ mode: isTest ? 'test' : 'live' }),
-    })
-
-    if (isTest) {
-      const followUp = needsStaffFollowUp('', job.callReason)
-      if (followUp.needed) {
-        await createStaffTaskIfPossible({
-          callJobId: jobId,
-          patientName: job.patientName,
-          phoneNumber: job.phoneNumber,
-          medicationName: job.medicationName,
-          taskType: 'follow_up',
-          priority: 'high',
-          notes: followUp.reason,
-          aiSummary: updated.aiSummary,
-        })
-        await updateCallJobIfPresent(jobId, { staffFollowUpNeeded: true, followUpReason: followUp.reason })
-      }
-    }
-
-    return updated
-  } catch (e) {
-    const message = e instanceof Error ? e.message : 'Start call failed'
-    await updateCallJobIfPresent(jobId, {
-      callStatus: 'failed',
-      callCompletedAt: new Date(),
-      errorMessage: message,
-      staffFollowUpNeeded: true,
-      followUpReason: 'Call could not be started',
-    })
-    await createStaffTaskIfPossible({
-      callJobId: jobId,
-      patientName: job.patientName,
-      phoneNumber: job.phoneNumber,
-      medicationName: job.medicationName,
-      taskType: 'failed_call',
-      priority: 'high',
-      notes: message,
-    })
-    throw e
-  }
-}
-
-export async function startCallJobById(jobId: string) {
-  return runCall(jobId)
 }
 
 callJobsRouter.post('/calls/start', async (req, res) => {
@@ -657,24 +515,51 @@ callJobsRouter.post('/call-jobs/:id/follow-up-task', async (req, res) => {
 
 callJobsRouter.post('/call-jobs/:id/retry', async (req, res) => {
   try {
-    await prisma.callJob.update({
-      where: { id: req.params.id },
-      data: {
-        callStatus: 'queued',
-        twilioCallSid: null,
-        callAttemptedAt: null,
-        callCompletedAt: null,
-        callDuration: null,
-        errorMessage: null,
+    const body = req.body as Record<string, unknown>
+    const result = await scheduleRetryCallJob(req.params.id!, {
+      scheduledFor: body.scheduledFor != null ? String(body.scheduledFor) : undefined,
+      reason: body.reason != null ? String(body.reason) : undefined,
+      placeImmediately: Boolean(body.placeImmediately),
+      createFollowUpTask: Boolean(body.createFollowUpTask),
+    })
+
+    const retryMeta = result.retryCallJob
+      ? await buildRetryEnrichment([result.retryCallJob, result.originalCallJob])
+      : await buildRetryEnrichment([result.originalCallJob])
+
+    res.json({
+      ok: true,
+      existing: result.existing,
+      originalCallJob: {
+        ...enrichCallJob(result.originalCallJob),
+        ...retryMeta.get(result.originalCallJob.id),
       },
-    }).catch(() => null)
-    const job = await runCall(
-      req.params.id!,
-      fallbackJobFromBody(req.params.id!, req.body as Record<string, unknown>),
-      { force: true },
-    )
-    res.json(job)
+      retryCallJob: result.retryCallJob
+        ? {
+            ...enrichCallJob(result.retryCallJob),
+            ...retryMeta.get(result.retryCallJob.id),
+          }
+        : null,
+      retryRecommendation: result.retryRecommendation,
+      followUpTask: 'followUpTask' in result ? result.followUpTask : undefined,
+    })
   } catch (e) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Retry failed' })
+  }
+})
+
+callJobsRouter.post('/call-jobs/run-due-retries', async (req, res) => {
+  const secret = process.env.INTERNAL_CRON_SECRET?.trim()
+  const provided = req.header('x-internal-cron-secret')?.trim()
+  if (secret && provided !== secret) {
+    res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+
+  try {
+    const result = await runDueScheduledRetries()
+    res.json(result)
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Could not run due retries' })
   }
 })

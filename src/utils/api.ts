@@ -25,6 +25,17 @@ export interface RetryRecommendation {
   nextActionLabel: string
 }
 
+export interface RetryHistoryEntry {
+  id: string
+  retryAttempt: number
+  scheduledFor: string | null
+  retryStatus: string
+  callStatus: string
+  finalOutcome: string
+  createdAt: string
+  relatedTaskId: string | null
+}
+
 export interface CallJob {
   id: string
   uploadBatchId?: string | null
@@ -59,6 +70,19 @@ export interface CallJob {
   createdAt: string
   finalOutcome?: FinalCallOutcome
   retryRecommendation?: RetryRecommendation
+  parentCallJobId?: string | null
+  retryOfCallJobId?: string | null
+  retryAttempt?: number
+  maxRetryAttempts?: number
+  scheduledFor?: string | null
+  retryReason?: string | null
+  retryStatus?: string
+  createdFromOutcome?: string | null
+  relatedTaskId?: string | null
+  hasActiveRetry?: boolean
+  activeRetryCallJobId?: string | null
+  scheduledRetryAt?: string | null
+  retryHistory?: RetryHistoryEntry[]
   callEvents?: CallEvent[]
   staffTasks?: StaffTask[]
 }
@@ -261,12 +285,35 @@ export async function startCall(job: CallJob): Promise<CallJob> {
   })
 }
 
-export async function retryCall(job: CallJob): Promise<CallJob> {
-  return request<CallJob>(`/call-jobs/${job.id}/retry`, {
+export type ScheduleRetryInput = {
+  scheduledFor?: string
+  reason?: string
+  placeImmediately?: boolean
+  createFollowUpTask?: boolean
+}
+
+export type ScheduleRetryResponse = {
+  ok: boolean
+  existing: boolean
+  originalCallJob: CallJob
+  retryCallJob: CallJob | null
+  retryRecommendation: RetryRecommendation
+  followUpTask?: StaffTask
+}
+
+export async function scheduleRetryCall(
+  callJobId: string,
+  input: ScheduleRetryInput = {},
+): Promise<ScheduleRetryResponse> {
+  return request<ScheduleRetryResponse>(`/call-jobs/${callJobId}/retry`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ job }),
+    body: JSON.stringify(input),
   })
+}
+
+export async function retryCall(job: CallJob, input: ScheduleRetryInput = {}): Promise<ScheduleRetryResponse> {
+  return scheduleRetryCall(job.id, { placeImmediately: true, ...input })
 }
 
 export async function createFollowUpFromCall(
