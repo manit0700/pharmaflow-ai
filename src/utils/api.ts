@@ -98,8 +98,10 @@ export interface StaffTask {
   sourceWorkflow?: string | null
   issueSummary?: string | null
   activityJson?: string | null
+  completedAt?: string | null
   createdAt: string
   updatedAt?: string
+  taskActivities?: TaskActivity[]
   callJob?: {
     id: string
     callReason: string
@@ -108,6 +110,16 @@ export interface StaffTask {
     callAttemptedAt: string | null
     followUpReason: string | null
   } | null
+}
+
+export interface TaskActivity {
+  id: string
+  taskId: string
+  activityType: string
+  message: string
+  actor: string
+  metadataJson: string | null
+  createdAt: string
 }
 
 export interface HealthResponse {
@@ -138,7 +150,9 @@ export interface HealthResponse {
   database?: {
     provider: 'sqlite' | 'postgres' | 'unknown' | 'missing'
     durable: boolean
+    connected?: boolean
     warning: string | null
+    error?: string | null
   }
 }
 

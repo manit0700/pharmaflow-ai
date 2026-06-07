@@ -1,6 +1,6 @@
 # PharmaFlow AI — Backend
 
-Express + Prisma (SQLite) + Twilio + Excel import for outbound pharmacy auto-calling.
+Express + Prisma + Twilio + Excel import for outbound pharmacy auto-calling. Local development can use SQLite; production should use durable Postgres through `DATABASE_URL`.
 
 ## Setup
 
@@ -8,16 +8,40 @@ Express + Prisma (SQLite) + Twilio + Excel import for outbound pharmacy auto-cal
 cd server
 npm install
 cp .env.example .env
-npx prisma migrate dev --name init
+npm run db:migrate
 npm run db:seed
 npm run dev
 ```
 
-API: http://localhost:4000/api/health
+API: http://localhost:4002/api/health
 
 ## Environment
 
 See `.env.example`.
+
+### Database
+
+Use SQLite for local development:
+
+```env
+DATABASE_URL=file:./dev.db
+```
+
+Use managed Postgres for production:
+
+```env
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require
+```
+
+From the repo root or `server/` directory:
+
+```bash
+npm run db:check
+npm run db:migrate
+npm run db:seed   # optional fake demo data
+```
+
+`/api/health` reports the database provider, whether it is durable, and whether the connection succeeds.
 
 ### ngrok (real Twilio calls from localhost)
 

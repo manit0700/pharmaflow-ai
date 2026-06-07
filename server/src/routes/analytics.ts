@@ -75,7 +75,8 @@ analyticsRouter.get('/analytics', async (_req, res) => {
 
 analyticsRouter.get('/audit-events', async (_req, res) => {
   try {
-    const [callEvents, staffTasks, recentJobs] = await Promise.all([
+    const [auditEvents, callEvents, staffTasks, recentJobs] = await Promise.all([
+      prisma.auditEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 80 }).catch(() => []),
       prisma.callEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 80 }),
       prisma.staffTask.findMany({ orderBy: { createdAt: 'desc' }, take: 40 }),
       prisma.callJob.findMany({
@@ -95,6 +96,16 @@ analyticsRouter.get('/audit-events', async (_req, res) => {
       details: e.eventType,
     }))
 
+    const fromAuditEvents = auditEvents.map((e) => ({
+      id: `audit-${e.id}`,
+      timestamp: e.createdAt.toISOString(),
+      actor: e.actor,
+      action: e.action,
+      resource: e.entityId ? `${e.entityType}/${e.entityId}` : e.entityType,
+      severity: e.action.includes('FAILED') ? 'warning' : 'info',
+      details: e.message,
+    }))
+
     const fromTasks = staffTasks.map((t) => ({
       id: t.id,
       timestamp: t.createdAt.toISOString(),
@@ -102,7 +113,7 @@ analyticsRouter.get('/audit-events', async (_req, res) => {
       action: 'STAFF_TASK',
       resource: `task/${t.taskType}`,
       severity: t.priority === 'urgent' ? 'critical' : t.priority === 'high' ? 'warning' : 'info',
-      details: `${t.patientName}: ${t.notes ?? t.taskType}`,
+      details: t.notes ?? t.taskType,
     }))
 
     const fromJobs = recentJobs.map((j) => ({
@@ -115,7 +126,7 @@ analyticsRouter.get('/audit-events', async (_req, res) => {
       details: j.patientResponse ?? j.aiSummary ?? `Status: ${j.callStatus}`,
     }))
 
-    const merged = [...fromTasks, ...fromJobs, ...fromEvents]
+    const merged = [...fromAuditEvents, ...fromTasks, ...fromJobs, ...fromEvents]
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
       .slice(0, 100)
 

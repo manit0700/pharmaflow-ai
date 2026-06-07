@@ -98,11 +98,20 @@ The build automatically generates the correct Prisma client:
 - `file:` URL -> SQLite schema for local dev
 - `postgres://` or `postgresql://` URL -> Postgres schema for Vercel
 
+Run the database commands from the repo root:
+
+```bash
+npm run db:check
+npm run db:migrate
+npm run db:seed   # optional fake demo data only
+```
+
 On Vercel:
 
 ```bash
 vercel env rm DATABASE_URL production
 vercel env add DATABASE_URL production
+npm run db:migrate
 vercel deploy --prod
 ```
 
@@ -112,7 +121,7 @@ After deploy, check:
 curl https://pharmaflow-ai.vercel.app/api/health
 ```
 
-The health response should include `"database":{"provider":"postgres","durable":true}`.
+The health response should include `"database":{"provider":"postgres","durable":true,"connected":true}`. If it reports SQLite on Vercel, the deployment is still using temporary storage and is not ready for real call status tracking.
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for additional deployment notes.
 

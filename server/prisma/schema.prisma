@@ -86,8 +86,33 @@ model StaffTask {
   sourceWorkflow String?
   issueSummary   String?
   activityJson   String?
+  completedAt    DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  taskActivities TaskActivity[]
+}
+
+model TaskActivity {
+  id           String   @id @default(cuid())
+  taskId       String
+  task         StaffTask @relation(fields: [taskId], references: [id])
+  activityType String
+  message      String
+  actor        String   @default("system")
+  metadataJson String?
+  createdAt    DateTime @default(now())
+}
+
+model AuditEvent {
+  id           String   @id @default(cuid())
+  entityType   String
+  entityId     String?
+  action       String
+  actor        String   @default("system")
+  message      String
+  metadataJson String?
+  createdAt    DateTime @default(now())
 }
 
 model InboundCall {

@@ -33,7 +33,7 @@ This repo includes `render.yaml` for two services:
 - `pharmaflow-ai-api`: Express + Prisma backend
 - `pharmaflow-ai-web`: Vite static frontend
 
-Render gives every web service an HTTPS `onrender.com` URL. Persistent disks preserve SQLite files across deploys and restarts, while the normal filesystem is ephemeral.
+Render gives every web service an HTTPS `onrender.com` URL. For production call jobs, Twilio webhooks, and follow-up tasks, use managed Postgres through `DATABASE_URL`. SQLite is acceptable only for local development or throwaway demos.
 
 ## Steps
 
@@ -56,7 +56,7 @@ TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 TWILIO_PHONE_NUMBER=+1YOUR_TWILIO_NUMBER
 PHARMACY_STAFF_PHONE_NUMBER=+1VERIFIED_STAFF_NUMBER
-DATABASE_URL=file:/var/data/dev.db
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require
 ```
 
 6. Set frontend service environment variables:
@@ -66,6 +66,18 @@ VITE_API_BASE_URL=https://pharmaflow-ai-api.onrender.com
 ```
 
 7. Redeploy both services.
+8. Run the migration command against the same `DATABASE_URL`:
+
+```bash
+npm run db:migrate
+```
+
+Optional fake demo data:
+
+```bash
+npm run db:seed
+```
+
 8. Open:
 
 ```text
@@ -79,6 +91,18 @@ https://pharmaflow-ai-api.onrender.com/api/health
 ```
 
 `liveCallReadiness.ready` should be `true`.
+
+The health response should also include:
+
+```json
+{
+  "database": {
+    "provider": "postgres",
+    "durable": true,
+    "connected": true
+  }
+}
+```
 
 ## Twilio Console Settings
 
@@ -101,4 +125,4 @@ With a Twilio trial account, real outbound calls only work to numbers you verify
 
 ## Production Note
 
-This deployment is suitable for a demo or limited internal test. For real patient use, replace SQLite with managed Postgres, add authentication/authorization, audit logging, PHI-safe logging, and confirm BAA coverage for Twilio and any AI vendor.
+This deployment is suitable for a demo or limited internal test only after managed Postgres is connected. For real patient use, add authentication/authorization, formal audit log review, PHI-safe logging controls, encryption/key-management review, and confirm BAA coverage for Twilio and any AI vendor.

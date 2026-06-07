@@ -45,6 +45,10 @@ model CallJob {
 
   staffTasks StaffTask[]
   callEvents CallEvent[]
+
+  @@index([callStatus])
+  @@index([twilioCallSid])
+  @@index([createdAt])
 }
 
 model UploadBatch {
@@ -80,8 +84,48 @@ model StaffTask {
   status         String   @default("open")
   notes          String?
   aiSummary      String?
+  assignedTeam   String   @default("Unassigned")
+  dueDate        String?
+  dueTime        String   @default("15:00")
+  sourceWorkflow String?
+  issueSummary   String?
+  activityJson   String?
+  completedAt    DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  taskActivities TaskActivity[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+  @@index([callJobId])
+}
+
+model TaskActivity {
+  id           String   @id @default(cuid())
+  taskId       String
+  task         StaffTask @relation(fields: [taskId], references: [id])
+  activityType String
+  message      String
+  actor        String   @default("system")
+  metadataJson String?
+  createdAt    DateTime @default(now())
+
+  @@index([taskId])
+}
+
+model AuditEvent {
+  id           String   @id @default(cuid())
+  entityType   String
+  entityId     String?
+  action       String
+  actor        String   @default("system")
+  message      String
+  metadataJson String?
+  createdAt    DateTime @default(now())
+
+  @@index([entityType, entityId])
 }
 
 model InboundCall {
