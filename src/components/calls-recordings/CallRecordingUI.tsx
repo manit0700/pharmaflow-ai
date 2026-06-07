@@ -1,5 +1,6 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
   AlertCircle,
   CalendarDays,
@@ -28,9 +29,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn, formatDuration, formatTime } from '@/lib/utils'
 import { CALL_RECORDINGS_MOCK, createDemoCallRecord } from '@/data/callRecordingsMock'
-import type { CallRecordingRecord, CallStatus, FollowUpAction, Sentiment, WorkflowType } from '@/types/callRecordings'
+import type { CallRecordingRecord, CallStatus, FollowUpAction, OutcomeFilter, Sentiment, WorkflowType } from '@/types/callRecordings'
+import { createFollowUpFromCall, fetchCallJobs, retryCall, type CallJob } from '@/utils/api'
+import { mergeRecordingSources } from '@/utils/callJobToRecording'
+import { outcomeBadgeVariant, type FinalCallOutcome } from '@/utils/callOutcome'
 import {
   DATE_OPTIONS,
+  OUTCOME_FILTER_OPTIONS,
   REVIEW_OPTIONS,
   SORT_OPTIONS,
   STATUS_OPTIONS,
@@ -49,8 +54,9 @@ function labelStatus(status: CallStatus) {
 
 function statusVariant(status: CallStatus): 'success' | 'secondary' | 'destructive' | 'warning' {
   if (status === 'completed') return 'success'
-  if (status === 'no_answer') return 'secondary'
-  if (status === 'failed') return 'destructive'
+  if (status === 'no_answer' || status === 'voicemail') return 'secondary'
+  if (status === 'failed' || status === 'canceled') return 'destructive'
+  if (status === 'busy') return 'warning'
   return 'warning'
 }
 
@@ -97,13 +103,17 @@ export function CallRecordingDashboard() {
   const [selectedId, setSelectedId] = useState<string>(CALL_RECORDINGS_MOCK[0]?.id ?? '')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<'all' | CallStatus>('all')
+  const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>('all')
   const [workflow, setWorkflow] = useState<'all' | WorkflowType>('all')
   const [review, setReview] = useState<ReviewFilter>('all')
   const [date, setDate] = useState<DateFilter>('all')
   const [sort, setSort] = useState<SortOption>('newest')
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [errored, setErrored] = useState(false)
+  const [liveJobCount, setLiveJobCount] = useState(0)
+  const [liveJobsById, setLiveJobsById] = useState<Record<string, CallJob>>({})
+  const [actionBusy, setActionBusy] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
   const [progressSec, setProgressSec] = useState(0)
@@ -115,9 +125,31 @@ export function CallRecordingDashboard() {
     }
   }, [searchParams, calls])
 
+  const loadCalls = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
+    setErrored(false)
+    try {
+      const jobs = await fetchCallJobs()
+      const byId = Object.fromEntries(jobs.map((job) => [job.id, job]))
+      setLiveJobsById(byId)
+      setLiveJobCount(jobs.length)
+      setCalls(mergeRecordingSources(jobs, CALL_RECORDINGS_MOCK))
+    } catch {
+      setErrored(true)
+      setCalls(CALL_RECORDINGS_MOCK)
+      if (!silent) toast.error('Could not load live call jobs — showing demo recordings')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadCalls()
+  }, [loadCalls])
+
   const filtered = useMemo(
-    () => filterAndSortCalls(calls, { search, status, workflow, review, date, sort }),
-    [calls, search, status, workflow, review, date, sort],
+    () => filterAndSortCalls(calls, { search, status, workflow, review, date, sort, outcomeFilter }),
+    [calls, search, status, workflow, review, date, sort, outcomeFilter],
   )
 
   const selected = filtered.find((c) => c.id === selectedId) ?? filtered[0] ?? null
@@ -186,13 +218,49 @@ export function CallRecordingDashboard() {
     navigate(`/follow-ups?callId=${call.id}`)
   }
 
+  const handleRetryCall = async (call: CallRecordingRecord) => {
+    const job = liveJobsById[call.id]
+    if (!job) {
+      toast.message('Retry is available for live call jobs from the dashboard queue.')
+      return
+    }
+    setActionBusy(call.id)
+    try {
+      await retryCall(job)
+      toast.success(`Retry started for ${call.patientMasked}`)
+      await loadCalls(true)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Retry failed')
+    } finally {
+      setActionBusy(null)
+    }
+  }
+
+  const handleCreateFollowUp = async (call: CallRecordingRecord) => {
+    if (call.relatedFollowUpTaskId) {
+      navigate(`/follow-ups?task=${call.relatedFollowUpTaskId}`)
+      return
+    }
+    const job = liveJobsById[call.id]
+    if (!job) {
+      openFollowUp(call)
+      return
+    }
+    setActionBusy(call.id)
+    try {
+      const result = await createFollowUpFromCall(job.id)
+      toast.success(result.created ? 'Follow-up task created' : 'Existing follow-up task linked')
+      await loadCalls(true)
+      navigate(`/follow-ups?task=${result.task.id}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not create follow-up task')
+    } finally {
+      setActionBusy(null)
+    }
+  }
+
   const simulateRefresh = () => {
-    setLoading(true)
-    setErrored(false)
-    setTimeout(() => {
-      setLoading(false)
-      setErrored(false)
-    }, 800)
+    void loadCalls()
   }
 
   const generateDemo = () => {
@@ -275,6 +343,11 @@ export function CallRecordingDashboard() {
             <Badge variant="outline">HIPAA-ready Demo</Badge>
           </div>
           <p className="text-xs text-muted-foreground">Demo data only. Do not use real patient information in this environment.</p>
+          {liveJobCount > 0 && (
+            <Badge variant="success" className="mt-1">
+              {liveJobCount} live call job{liveJobCount === 1 ? '' : 's'} from Postgres
+            </Badge>
+          )}
         </CardContent>
       </Card>
 
@@ -307,6 +380,12 @@ export function CallRecordingDashboard() {
               value={status}
               onValue={(v) => setStatus(v as typeof status)}
               options={STATUS_OPTIONS.map((s) => ({ value: s, label: s === 'all' ? 'All' : labelStatus(s) }))}
+            />
+            <FilterSelect
+              label="Outcome"
+              value={outcomeFilter}
+              onValue={(v) => setOutcomeFilter(v as OutcomeFilter)}
+              options={OUTCOME_FILTER_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
             />
             <FilterSelect
               label="Workflow"
@@ -412,6 +491,21 @@ export function CallRecordingDashboard() {
                         <td className="px-3 py-2">{call.workflow}</td>
                         <td className="px-3 py-2">
                           <Badge variant={statusVariant(call.status)}>{labelStatus(call.status)}</Badge>
+                          {call.finalOutcome && (
+                            <Badge className="mt-1" variant={outcomeBadgeVariant(call.finalOutcome as FinalCallOutcome)}>
+                              {call.finalOutcome}
+                            </Badge>
+                          )}
+                          {call.twilioStatus && call.liveSource === 'api' && (
+                            <Badge className="mt-1" variant="outline">
+                              Twilio: {call.twilioStatus.replace(/_/g, ' ')}
+                            </Badge>
+                          )}
+                          {call.retryRecommendation?.shouldRetry && (
+                            <Badge className="mt-1" variant="warning">
+                              Retry recommended
+                            </Badge>
+                          )}
                           {call.followUpNeeded && <Badge className="mt-1" variant="warning">Follow-up</Badge>}
                         </td>
                         <td className="px-3 py-2">{formatTime(call.startedAt)}</td>
@@ -523,9 +617,55 @@ export function CallRecordingDashboard() {
                       <Badge variant="outline">{formatDuration(selected.durationSec)}</Badge>
                       <Badge variant={sentimentVariant(selected.sentiment)}>{selected.sentiment}</Badge>
                       <Badge variant="secondary">AI Confidence {selected.aiConfidence}%</Badge>
+                      {selected.finalOutcome && (
+                        <Badge variant={outcomeBadgeVariant(selected.finalOutcome as FinalCallOutcome)}>
+                          {selected.finalOutcome}
+                        </Badge>
+                      )}
+                      {selected.retryRecommendation?.shouldRetry && (
+                        <Badge variant="warning">Retry recommended</Badge>
+                      )}
                     </div>
                     <p className="text-sm">{selected.outcome}</p>
+                    {selected.errorMessage && (
+                      <p className="text-xs text-destructive">{selected.errorMessage}</p>
+                    )}
+                    {selected.retryRecommendation && (
+                      <p className="text-xs text-muted-foreground">
+                        {selected.retryRecommendation.reason} · {selected.retryRecommendation.nextActionLabel}
+                      </p>
+                    )}
                   </div>
+
+                  {(selected.liveSource === 'api' || selected.followUpNeeded || selected.retryRecommendation?.shouldRetry) && (
+                    <Card className="border-primary/20 bg-primary/5">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Live call actions</CardTitle>
+                        <CardDescription>Retry or create a follow-up task from this call outcome</CardDescription>
+                      </CardHeader>
+                      <CardContent className="flex flex-wrap gap-2">
+                        {selected.retryRecommendation?.shouldRetry && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={actionBusy === selected.id || !liveJobsById[selected.id]}
+                            onClick={() => void handleRetryCall(selected)}
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                            Retry call
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          onClick={() => void handleCreateFollowUp(selected)}
+                          disabled={actionBusy === selected.id}
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          {selected.relatedFollowUpTaskId ? 'Open follow-up task' : 'Create follow-up task'}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )}
 
                   <Card className="border-border/70">
                     <CardContent className="space-y-3 p-3">

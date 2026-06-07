@@ -1,4 +1,19 @@
-export type CallStatus = 'completed' | 'no_answer' | 'failed' | 'escalated'
+export type CallStatus =
+  | 'completed'
+  | 'no_answer'
+  | 'failed'
+  | 'escalated'
+  | 'busy'
+  | 'voicemail'
+  | 'canceled'
+
+export type OutcomeFilter =
+  | 'all'
+  | 'no_answer'
+  | 'busy'
+  | 'failed'
+  | 'voicemail'
+  | 'retry_recommended'
 
 export type WorkflowType =
   | 'Refill Reminder'
@@ -43,4 +58,15 @@ export interface CallRecordingRecord {
   keyTags: string[]
   transcript: TranscriptLine[]
   relatedFollowUpTaskId?: string
+  liveSource?: 'api' | 'mock'
+  twilioCallSid?: string | null
+  twilioStatus?: string | null
+  finalOutcome?: string
+  retryRecommendation?: {
+    shouldRetry: boolean
+    recommendedRetryAt: string | null
+    reason: string
+    nextActionLabel: string
+  }
+  errorMessage?: string | null
 }

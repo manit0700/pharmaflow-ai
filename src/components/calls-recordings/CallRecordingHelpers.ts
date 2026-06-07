@@ -1,4 +1,4 @@
-import type { CallRecordingRecord, CallStatus, WorkflowType } from '@/types/callRecordings'
+import type { CallRecordingRecord, CallStatus, OutcomeFilter, WorkflowType } from '@/types/callRecordings'
 
 export type ReviewFilter = 'all' | 'needs_review' | 'reviewed'
 export type DateFilter = 'today' | '7d' | '30d' | 'all'
@@ -22,8 +22,20 @@ export const STATUS_OPTIONS: Array<'all' | CallStatus> = [
   'all',
   'completed',
   'no_answer',
+  'busy',
   'failed',
+  'voicemail',
+  'canceled',
   'escalated',
+]
+
+export const OUTCOME_FILTER_OPTIONS: Array<{ value: OutcomeFilter; label: string }> = [
+  { value: 'all', label: 'All outcomes' },
+  { value: 'no_answer', label: 'No Answer' },
+  { value: 'busy', label: 'Busy' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'voicemail', label: 'Voicemail' },
+  { value: 'retry_recommended', label: 'Retry Recommended' },
 ]
 
 export const REVIEW_OPTIONS: ReviewFilter[] = ['all', 'needs_review', 'reviewed']
@@ -72,6 +84,7 @@ export function filterAndSortCalls(
     review: ReviewFilter
     date: DateFilter
     sort: SortOption
+    outcomeFilter?: OutcomeFilter
   },
 ): CallRecordingRecord[] {
   const filtered = data.filter((c) => {
@@ -81,6 +94,13 @@ export function filterAndSortCalls(
     if (params.review === 'reviewed' && !c.reviewed) return false
     if (params.review === 'needs_review' && c.reviewed) return false
     if (!inDateRange(c.startedAt, params.date)) return false
+    if (params.outcomeFilter && params.outcomeFilter !== 'all') {
+      if (params.outcomeFilter === 'retry_recommended') {
+        if (!c.retryRecommendation?.shouldRetry) return false
+      } else if (c.status !== params.outcomeFilter) {
+        return false
+      }
+    }
     return true
   })
 

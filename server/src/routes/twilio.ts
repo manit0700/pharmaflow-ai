@@ -35,6 +35,13 @@ function normalizeTwilioStatus(status?: string): string | undefined {
 }
 
 const FINAL_TWILIO_STATUSES = new Set(['completed', 'busy', 'failed', 'no_answer', 'cancelled'])
+const INTERMEDIATE_TWILIO_STATUSES: Record<string, string> = {
+  queued: 'queued_live',
+  initiated: 'dialing',
+  ringing: 'ringing',
+  'in-progress': 'in_progress',
+  answered: 'in_progress',
+}
 const PATIENT_OUTCOME_STATUSES = new Set([
   'completed',
   'callback_requested',
@@ -148,6 +155,8 @@ twilioRouter.post('/twilio/status', async (req, res) => {
 
     const normalizedStatus = normalizeTwilioStatus(CallStatus)
     const completed = FINAL_TWILIO_STATUSES.has(normalizedStatus ?? '')
+    const intermediateStatus =
+      !completed && normalizedStatus ? INTERMEDIATE_TWILIO_STATUSES[normalizedStatus] : undefined
     const endedBeforeAnswer =
       completed &&
       normalizedStatus === 'completed' &&
@@ -171,7 +180,11 @@ twilioRouter.post('/twilio/status', async (req, res) => {
         ? `Call ended with status ${normalizedStatus}`
         : job.followUpReason
     await updateCallJobIfPossible(job.id, {
-      callStatus: finalCallStatus ?? job.callStatus,
+      callStatus:
+        finalCallStatus ??
+        intermediateStatus ??
+        (normalizedStatus && !PATIENT_OUTCOME_STATUSES.has(job.callStatus) ? normalizedStatus : job.callStatus),
+      callAttemptedAt: job.callAttemptedAt ?? (CallStatus ? new Date() : undefined),
       callCompletedAt: completed ? new Date() : job.callCompletedAt,
       callDuration: CallDuration ? Number(CallDuration) : job.callDuration,
       patientResponse: finalPatientResponse,

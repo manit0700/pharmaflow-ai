@@ -1,0 +1,156 @@
+export type FinalCallOutcome =
+  | 'Completed'
+  | 'No Answer'
+  | 'Busy'
+  | 'Failed'
+  | 'Voicemail'
+  | 'Canceled'
+  | 'Needs Review'
+  | 'In Progress'
+  | 'Queued'
+
+export type RetryRecommendation = {
+  shouldRetry: boolean
+  recommendedRetryAt: string | null
+  reason: string
+  nextActionLabel: string
+}
+
+type CallJobLike = {
+  callStatus: string
+  staffFollowUpNeeded?: boolean
+  followUpReason?: string | null
+  patientResponse?: string | null
+  errorMessage?: string | null
+  callCompletedAt?: string | null
+  callAttemptedAt?: string | null
+}
+
+const ACTIVE_STATUSES = new Set([
+  'queued',
+  'queued_live',
+  'dialing',
+  'simulating',
+  'ringing',
+  'in_progress',
+])
+
+const NEEDS_REVIEW_STATUSES = new Set(['callback_requested', 'escalated', 'blocked'])
+
+export function getFinalOutcome(job: CallJobLike): FinalCallOutcome {
+  const status = job.callStatus.toLowerCase()
+
+  if (NEEDS_REVIEW_STATUSES.has(status) || (job.staffFollowUpNeeded && !ACTIVE_STATUSES.has(status))) {
+    return 'Needs Review'
+  }
+  if (status === 'completed' || status === 'resolved') return 'Completed'
+  if (status === 'no_answer') return 'No Answer'
+  if (status === 'busy') return 'Busy'
+  if (status === 'failed') return 'Failed'
+  if (status === 'voicemail') return 'Voicemail'
+  if (status === 'cancelled' || status === 'canceled') return 'Canceled'
+  if (ACTIVE_STATUSES.has(status)) return 'In Progress'
+  if (status === 'invalid') return 'Needs Review'
+  return 'Queued'
+}
+
+function addMinutes(date: Date, minutes: number): Date {
+  return new Date(date.getTime() + minutes * 60_000)
+}
+
+function addHours(date: Date, hours: number): Date {
+  return new Date(date.getTime() + hours * 3_600_000)
+}
+
+function startOfNextDay(date: Date): Date {
+  const next = new Date(date)
+  next.setDate(next.getDate() + 1)
+  next.setHours(9, 0, 0, 0)
+  return next
+}
+
+export function getRetryRecommendation(job: CallJobLike): RetryRecommendation {
+  const status = job.callStatus.toLowerCase()
+  const baseTime = job.callCompletedAt ?? job.callAttemptedAt ?? new Date().toISOString()
+
+  if (status === 'no_answer') {
+    return {
+      shouldRetry: true,
+      recommendedRetryAt: addHours(new Date(baseTime), 2).toISOString(),
+      reason: 'Patient did not answer the outbound call.',
+      nextActionLabel: 'Retry in 2 hours',
+    }
+  }
+
+  if (status === 'busy') {
+    return {
+      shouldRetry: true,
+      recommendedRetryAt: addMinutes(new Date(baseTime), 30).toISOString(),
+      reason: 'Line was busy when the call was placed.',
+      nextActionLabel: 'Retry in 30 minutes',
+    }
+  }
+
+  if (status === 'failed') {
+    return {
+      shouldRetry: false,
+      recommendedRetryAt: null,
+      reason: job.errorMessage ?? 'Call failed before completion.',
+      nextActionLabel: 'Review phone number or call staff',
+    }
+  }
+
+  if (status === 'voicemail') {
+    return {
+      shouldRetry: true,
+      recommendedRetryAt: startOfNextDay(new Date(baseTime)).toISOString(),
+      reason: 'Call reached voicemail.',
+      nextActionLabel: 'Optional retry tomorrow',
+    }
+  }
+
+  if (status === 'callback_requested' || status === 'escalated' || job.staffFollowUpNeeded) {
+    return {
+      shouldRetry: false,
+      recommendedRetryAt: null,
+      reason: job.followUpReason ?? 'Staff follow-up is required for this call outcome.',
+      nextActionLabel: 'Create follow-up task',
+    }
+  }
+
+  if (status === 'completed' || status === 'resolved') {
+    return {
+      shouldRetry: false,
+      recommendedRetryAt: null,
+      reason: 'Call completed successfully with no retry needed.',
+      nextActionLabel: 'No retry needed',
+    }
+  }
+
+  if (ACTIVE_STATUSES.has(status)) {
+    return {
+      shouldRetry: false,
+      recommendedRetryAt: null,
+      reason: 'Call is still in progress.',
+      nextActionLabel: 'Wait for final status',
+    }
+  }
+
+  return {
+    shouldRetry: false,
+    recommendedRetryAt: null,
+    reason: 'No automatic retry recommendation for this status.',
+    nextActionLabel: 'Review call details',
+  }
+}
+
+export function outcomeBadgeVariant(
+  outcome: FinalCallOutcome,
+): 'success' | 'secondary' | 'destructive' | 'warning' | 'outline' {
+  if (outcome === 'Completed') return 'success'
+  if (outcome === 'No Answer' || outcome === 'Voicemail') return 'secondary'
+  if (outcome === 'Failed' || outcome === 'Canceled') return 'destructive'
+  if (outcome === 'Busy') return 'warning'
+  if (outcome === 'Needs Review') return 'warning'
+  return 'outline'
+}

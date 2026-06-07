@@ -1,4 +1,5 @@
 import { prisma } from './prisma.js'
+import { isPostgresDatabaseUrl, resolveDatabaseUrl } from './databaseUrl.js'
 
 let initialized: Promise<void> | null = null
 
@@ -350,14 +351,14 @@ async function initializePostgresRuntimeDb(): Promise<void> {
 }
 
 export function shouldInitializeRuntimeDb(): boolean {
-  const databaseUrl = process.env.DATABASE_URL ?? ''
-  return process.env.VERCEL === '1' && (databaseUrl.startsWith('file:') || /^postgres(?:ql)?:\/\//i.test(databaseUrl))
+  const databaseUrl = resolveDatabaseUrl()
+  return process.env.VERCEL === '1' && (databaseUrl.startsWith('file:') || isPostgresDatabaseUrl(databaseUrl))
 }
 
 export function ensureRuntimeDb(): Promise<void> {
   if (!shouldInitializeRuntimeDb()) return Promise.resolve()
-  const databaseUrl = process.env.DATABASE_URL ?? ''
-  initialized ??= /^postgres(?:ql)?:\/\//i.test(databaseUrl)
+  const databaseUrl = resolveDatabaseUrl()
+  initialized ??= isPostgresDatabaseUrl(databaseUrl)
     ? initializePostgresRuntimeDb()
     : initializeSqliteRuntimeDb()
   return initialized

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
 import type { CallJob } from '@/utils/api'
+import { getFinalOutcome, getRetryRecommendation, outcomeBadgeVariant, type FinalCallOutcome } from '@/utils/callOutcome'
 import { cn } from '@/lib/utils'
 
 type ChatMessage = { role: string; content: string }
@@ -53,6 +54,9 @@ export function CallJobDetailPanel({
       return []
     }
   })()
+  const finalOutcome: FinalCallOutcome =
+    (job.finalOutcome as FinalCallOutcome | undefined) ?? getFinalOutcome(job)
+  const retryRecommendation = job.retryRecommendation ?? getRetryRecommendation(job)
 
   return (
     <Card className="border-primary/30">
@@ -76,6 +80,12 @@ export function CallJobDetailPanel({
           <div>
             <dt className="text-xs text-muted-foreground">Call status</dt>
             <dd className="capitalize">{job.callStatus.replace(/_/g, ' ')}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-muted-foreground">Final outcome</dt>
+            <dd>
+              <Badge variant={outcomeBadgeVariant(finalOutcome)}>{finalOutcome}</Badge>
+            </dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">DOB</dt>
@@ -182,6 +192,22 @@ export function CallJobDetailPanel({
             </Button>
           )}
         </div>
+
+        {retryRecommendation && (
+          <div className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-medium text-muted-foreground">Retry recommendation</p>
+              {retryRecommendation.shouldRetry && <Badge variant="warning">Retry recommended</Badge>}
+            </div>
+            <p className="text-sm">{retryRecommendation.reason}</p>
+            <p className="text-xs text-muted-foreground">{retryRecommendation.nextActionLabel}</p>
+            {retryRecommendation.recommendedRetryAt && (
+              <p className="text-xs text-muted-foreground">
+                Suggested: {new Date(retryRecommendation.recommendedRetryAt).toLocaleString()}
+              </p>
+            )}
+          </div>
+        )}
 
         {job.errorMessage && (
           <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-destructive">

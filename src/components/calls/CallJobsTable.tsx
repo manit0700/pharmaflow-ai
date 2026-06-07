@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { CallJobDetailPanel } from '@/components/calls/CallJobDetailPanel'
 import type { CallJob, HealthResponse } from '@/utils/api'
 import { canStartCall, isActiveCallStatus } from '@/utils/callStatus'
+import { getRetryRecommendation } from '@/utils/callOutcome'
 import { latestPatientReply } from '@/utils/liveTranscript'
 
 const CALL_STATUS_OPTIONS = [
@@ -414,6 +415,11 @@ export function CallJobsTable({
                 </td>
                 <td className="py-2.5 pr-3">
                   {renderRowStatusSelect(j)}
+                  {getRetryRecommendation(j).shouldRetry && (
+                    <Badge className="mt-1" variant="warning">
+                      Retry recommended
+                    </Badge>
+                  )}
                   {j.errorMessage && (
                     <div className="max-w-72 truncate text-xs text-destructive" title={j.errorMessage}>
                       {j.errorMessage}

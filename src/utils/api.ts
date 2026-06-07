@@ -2,6 +2,7 @@
  * Dev: default same-origin /api → Vite proxy to 127.0.0.1:4002.
  * Set VITE_API_BASE_URL in .env.local only when you need a direct API host.
  */
+import type { FinalCallOutcome } from '@/utils/callOutcome'
 function getApiBase(): string {
   const raw = import.meta.env.VITE_API_BASE_URL as string | undefined
   const hasExplicit = raw !== undefined && String(raw).trim() !== ''
@@ -16,6 +17,13 @@ function getApiBase(): string {
 }
 
 const BASE = getApiBase()
+
+export interface RetryRecommendation {
+  shouldRetry: boolean
+  recommendedRetryAt: string | null
+  reason: string
+  nextActionLabel: string
+}
 
 export interface CallJob {
   id: string
@@ -49,6 +57,8 @@ export interface CallJob {
   staffFollowUpNeeded: boolean
   followUpReason: string | null
   createdAt: string
+  finalOutcome?: FinalCallOutcome
+  retryRecommendation?: RetryRecommendation
   callEvents?: CallEvent[]
   staffTasks?: StaffTask[]
 }
@@ -256,6 +266,16 @@ export async function retryCall(job: CallJob): Promise<CallJob> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ job }),
+  })
+}
+
+export async function createFollowUpFromCall(
+  callJobId: string,
+): Promise<{ task: StaffTask; created: boolean }> {
+  return request<{ task: StaffTask; created: boolean }>(`/call-jobs/${callJobId}/follow-up-task`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
   })
 }
 

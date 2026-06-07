@@ -5,8 +5,19 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const command = process.platform === 'win32' ? 'npx.cmd' : 'npx'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const databaseUrl = process.env.DATABASE_URL ?? ''
+function resolveDatabaseUrl() {
+  for (const key of ['DATABASE_URL', 'POSTGRES_URL', 'POSTGRES_PRISMA_URL']) {
+    const value = process.env[key]?.trim()
+    if (value) return value
+  }
+  return ''
+}
+
+let databaseUrl = resolveDatabaseUrl()
 const isPostgres = /^postgres(?:ql)?:\/\//i.test(databaseUrl)
+if (isPostgres && !process.env.DATABASE_URL?.trim()) {
+  process.env.DATABASE_URL = databaseUrl
+}
 const schema = path.join(root, isPostgres ? 'server/prisma/schema.postgres.prisma' : 'server/prisma/schema.prisma')
 const action = process.argv[2] ?? 'check'
 

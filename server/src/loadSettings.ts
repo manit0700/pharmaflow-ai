@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import dotenv from 'dotenv'
+import { normalizeDatabaseEnv } from './lib/databaseUrl.js'
 
 export type ConfigSource = 'local.config.json' | 'env'
 
@@ -33,6 +34,8 @@ export function loadSettings(): ConfigSource {
     dotenv.config({ path: envPath })
     configSource = 'env'
   }
+
+  normalizeDatabaseEnv()
 
   return configSource
 }

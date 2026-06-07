@@ -4,6 +4,7 @@ import { config } from '../config.js'
 import { ensureRuntimeDb, shouldInitializeRuntimeDb } from '../lib/runtimeDb.js'
 import { prisma } from '../lib/prisma.js'
 import { isAiCallConfigured } from '../services/callAi.js'
+import { isPostgresDatabaseUrl, resolveDatabaseUrl } from '../lib/databaseUrl.js'
 import { getLiveCallReadiness, getTwilioAuthMode, isTwilioConfigured } from '../services/twilio.js'
 
 export const healthRouter = Router()
@@ -11,8 +12,8 @@ export const healthRouter = Router()
 const serverBootedAt = new Date().toISOString()
 
 async function databaseHealth() {
-  const databaseUrl = process.env.DATABASE_URL ?? ''
-  const provider = /^postgres(?:ql)?:\/\//i.test(databaseUrl)
+  const databaseUrl = resolveDatabaseUrl()
+  const provider = isPostgresDatabaseUrl(databaseUrl)
     ? 'postgres'
     : databaseUrl.startsWith('file:')
       ? 'sqlite'
