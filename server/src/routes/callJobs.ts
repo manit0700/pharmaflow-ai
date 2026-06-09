@@ -155,29 +155,7 @@ callJobsRouter.post('/call-jobs', async (req, res) => {
       callStatus: safety.dnc ? 'blocked' : data.callStatus,
     }
 
-    const job = await prisma.callJob.create({ data: createData }).catch(() => ({
-      id: `stateless_${Date.now()}`,
-      ...createData,
-      twilioCallSid: null,
-      callAttemptedAt: null,
-      callCompletedAt: null,
-      callDuration: null,
-      patientResponse: null,
-      aiSummary: null,
-      errorMessage: null,
-      transcriptJson: null,
-      messagesJson: null,
-      aiConfidence: null,
-      resolutionStatus: null,
-      resolvedAt: null,
-      resolvedBy: null,
-      staffNotes: null,
-      staffFollowUpNeeded: false,
-      followUpReason: null,
-      smsStatus: 'none',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }))
+    const job = await prisma.callJob.create({ data: createData })
 
     res.status(201).json(job)
   } catch (e) {

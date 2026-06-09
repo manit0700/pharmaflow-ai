@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import { CALL_REASONS, type CallReasonValue } from '@/constants/callReasons'
 import type { CreateCallJobInput } from '@/utils/api'
+import { formatPhoneHint, normalizePhoneInput } from '@/utils/phone'
 
 const emptyForm = (): CreateCallJobInput => ({
   patientName: '',
@@ -26,30 +27,65 @@ const emptyForm = (): CreateCallJobInput => ({
 export function AddPatientForm({
   onSubmit,
   disabled,
+  apiOffline,
 }: {
   onSubmit: (input: CreateCallJobInput) => Promise<void>
   disabled?: boolean
+  apiOffline?: boolean
 }) {
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const update = <K extends keyof CreateCallJobInput>(key: K, value: CreateCallJobInput[K]) => {
     setForm((f) => ({ ...f, [key]: value }))
+    if (error) setError(null)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError(null)
+
+    const normalizedPhone = normalizePhoneInput(form.phoneNumber)
+    if (!normalizedPhone) {
+      setError('Enter a valid US phone number: 10 digits or +1 followed by 10 digits.')
+      return
+    }
+
     setSaving(true)
     try {
-      await onSubmit(form)
+      await onSubmit({
+        ...form,
+        patientName: form.patientName.trim(),
+        phoneNumber: normalizedPhone,
+        dob: form.dob.trim(),
+        medicationName: form.medicationName.trim(),
+        notes: form.notes?.trim() || '',
+      })
       setForm(emptyForm())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not add patient. Try again.')
     } finally {
       setSaving(false)
     }
   }
 
+  const phoneHint = formatPhoneHint(form.phoneNumber)
+
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+      {apiOffline && (
+        <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          API is offline — start the backend or check deployment health before adding patients.
+        </p>
+      )}
+
+      {error && (
+        <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="space-y-1.5">
           <Label htmlFor="patientName">Patient name</Label>
@@ -59,6 +95,7 @@ export function AddPatientForm({
             value={form.patientName}
             onChange={(e) => update('patientName', e.target.value)}
             required
+            disabled={disabled || saving}
           />
         </div>
         <div className="space-y-1.5">
@@ -66,12 +103,15 @@ export function AddPatientForm({
           <Input
             id="phoneNumber"
             type="tel"
-            placeholder="+1 555 123 4567"
+            placeholder="5551234567 or +15551234567"
             value={form.phoneNumber}
             onChange={(e) => update('phoneNumber', e.target.value)}
             required
+            disabled={disabled || saving}
           />
-          <p className="text-[10px] text-muted-foreground">10-digit US or E.164 (+1…)</p>
+          <p className="text-[10px] text-muted-foreground">
+            {phoneHint ?? '10-digit US or E.164 (+1…)'}
+          </p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="dob">Date of birth</Label>
@@ -81,6 +121,7 @@ export function AddPatientForm({
             value={form.dob}
             onChange={(e) => update('dob', e.target.value)}
             required
+            disabled={disabled || saving}
           />
         </div>
         <div className="space-y-1.5">
@@ -91,6 +132,7 @@ export function AddPatientForm({
             value={form.medicationName}
             onChange={(e) => update('medicationName', e.target.value)}
             required
+            disabled={disabled || saving}
           />
         </div>
         <div className="space-y-1.5">
@@ -98,6 +140,7 @@ export function AddPatientForm({
           <Select
             value={form.callReason}
             onValueChange={(v) => update('callReason', v as CallReasonValue)}
+            disabled={disabled || saving}
           >
             <SelectTrigger>
               <SelectValue placeholder="Select reason" />
@@ -119,12 +162,13 @@ export function AddPatientForm({
             placeholder="Pickup window, insurance note, preferred language…"
             value={form.notes ?? ''}
             onChange={(e) => update('notes', e.target.value)}
+            disabled={disabled || saving}
           />
         </div>
       </div>
       <Button type="submit" disabled={disabled || saving}>
         <Plus className="h-3.5 w-3.5" />
-        {saving ? 'Adding…' : 'Add to call queue'}
+        {saving ? 'Adding…' : apiOffline ? 'API offline' : 'Add to call queue'}
       </Button>
     </form>
   )

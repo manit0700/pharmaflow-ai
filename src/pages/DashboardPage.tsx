@@ -164,8 +164,11 @@ export function DashboardPage() {
         </CardHeader>
         <CardContent>
           <AddPatientForm
-            disabled={!health?.ok}
-            onSubmit={async (input) => onCreate(input)}
+            disabled={!health?.ok || loading}
+            apiOffline={!loading && !health?.ok}
+            onSubmit={async (input) => {
+              await onCreate(input)
+            }}
           />
         </CardContent>
       </Card>
@@ -190,6 +193,7 @@ export function DashboardPage() {
             jobs={jobs}
             callingId={callingId}
             health={health}
+            emptyMessage="No call jobs yet. Add a patient above or import an Excel file."
             onStart={(id) => void onStart(id)}
             onRetry={(id) => void onRetry(id)}
             onPreviewScript={onPreviewScript}

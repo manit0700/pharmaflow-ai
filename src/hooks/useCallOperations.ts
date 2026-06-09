@@ -52,10 +52,10 @@ export function useCallOperations() {
         fetchDoNotCall(),
       ])
       setHealth(h)
-      setJobs(jobsResult.status === 'fulfilled' ? jobsResult.value : [])
-      setTasks(tasksResult.status === 'fulfilled' ? tasksResult.value : [])
-      setBatches(batchesResult.status === 'fulfilled' ? batchesResult.value : [])
-      setDoNotCall(dncResult.status === 'fulfilled' ? dncResult.value : [])
+      if (jobsResult.status === 'fulfilled') setJobs(jobsResult.value)
+      if (tasksResult.status === 'fulfilled') setTasks(tasksResult.value)
+      if (batchesResult.status === 'fulfilled') setBatches(batchesResult.value)
+      if (dncResult.status === 'fulfilled') setDoNotCall(dncResult.value)
     } catch (e) {
       if (!silent) {
         toast.error(e instanceof Error ? e.message : 'Backend unavailable')
@@ -132,21 +132,17 @@ export function useCallOperations() {
   }
 
   const onCreate = async (input: CreateCallJobInput) => {
-    try {
-      const job = await createCallJob(input)
-      setJobs((prev) => {
-        return mergeJobs(prev, [job])
-      })
-      if (job.validationStatus === 'valid') {
-        toast.success(`${job.patientName} added to queue`)
-      } else {
-        toast.warning(`Added with validation issues: ${job.validationError ?? 'check fields'}`)
-      }
-      await refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not add patient')
-      throw e
+    const job = await createCallJob(input)
+    setJobs((prev) => mergeJobs(prev, [job]))
+    if (job.validationStatus === 'valid' && job.callStatus !== 'blocked') {
+      toast.success(`${job.patientName} added to call queue`)
+    } else if (job.callStatus === 'blocked') {
+      toast.warning(`${job.patientName} saved but blocked: ${job.validationError ?? 'do-not-call or safety flag'}`)
+    } else {
+      toast.warning(`Patient saved with issues: ${job.validationError ?? 'check phone and required fields'}`)
     }
+    void refresh(true)
+    return job
   }
 
   const onRetry = async (id: string) => {
