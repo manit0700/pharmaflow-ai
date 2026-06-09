@@ -2,6 +2,7 @@ import { Router } from 'express'
 import multer from 'multer'
 import { prisma } from '../lib/prisma.js'
 import { parseExcelBuffer } from '../services/excel.js'
+import { ensureFollowUpForInvalidRow } from '../services/followUpTasks.js'
 import { normalizePhone } from '../services/safety.js'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
@@ -85,6 +86,12 @@ importRouter.post('/import/excel', upload.single('file'), async (req, res) => {
           },
         })
         .catch(() => null)
+    }
+
+    for (const job of created) {
+      if (job.validationStatus === 'invalid') {
+        await ensureFollowUpForInvalidRow(job).catch(() => null)
+      }
     }
 
     res.json({

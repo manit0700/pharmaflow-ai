@@ -14,9 +14,8 @@ import {
 import {
   getFinalOutcome,
   getRetryRecommendation,
-  mapCallReasonToTaskType,
-  mapCallReasonToWorkflow,
 } from '../services/callOutcome.js'
+import { createFollowUpTaskFromCallJob } from '../services/followUpTasks.js'
 
 export const callJobsRouter = Router()
 
@@ -425,89 +424,26 @@ callJobsRouter.post('/call-jobs/:id/start-call', async (req, res) => {
 
 callJobsRouter.post('/call-jobs/:id/follow-up-task', async (req, res) => {
   try {
-    const job = await prisma.callJob.findUnique({
-      where: { id: req.params.id },
-      include: {
-        staffTasks: {
-          where: { status: { notIn: ['completed', 'cancelled'] } },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
-      },
-    })
+    const job = await prisma.callJob.findUnique({ where: { id: req.params.id } })
     if (!job) {
       res.status(404).json({ error: 'Call job not found' })
       return
     }
 
-    if (job.staffTasks.length > 0) {
-      res.json({ task: job.staffTasks[0], created: false })
+    const result = await createFollowUpTaskFromCallJob(job.id)
+    if (!result.task) {
+      res.status(400).json({ error: 'No follow-up task needed for this call outcome' })
       return
     }
-
-    const outcome = getFinalOutcome(job)
-    const retry = getRetryRecommendation(job)
-    const priority =
-      job.callStatus === 'escalated' || job.callStatus === 'failed'
-        ? 'high'
-        : job.callStatus === 'no_answer' || job.callStatus === 'busy'
-          ? 'normal'
-          : 'normal'
-
-    const task = await prisma.staffTask.create({
-      data: {
-        callJobId: job.id,
-        patientName: job.patientName,
-        phoneNumber: job.phoneNumber,
-        medicationName: job.medicationName,
-        taskType: mapCallReasonToTaskType(job.callReason, job.callStatus),
-        priority,
-        status: 'open',
-        notes: job.followUpReason ?? retry.reason,
-        aiSummary: job.aiSummary,
-        assignedTeam: 'Unassigned',
-        dueDate: new Date().toISOString().slice(0, 10),
-        dueTime: '15:00',
-        sourceWorkflow: mapCallReasonToWorkflow(job.callReason),
-        issueSummary: job.followUpReason ?? `${outcome}: ${retry.reason}`,
-        activityJson: JSON.stringify([
-          {
-            id: `act-${Date.now()}`,
-            type: 'created',
-            message: `Follow-up task created from call outcome (${outcome}).`,
-            timestamp: new Date().toISOString(),
-            actor: 'System',
-          },
-        ]),
-      },
-    })
 
     await createCallEventIfPossible({
       callJobId: job.id,
       twilioCallSid: job.twilioCallSid,
       eventType: 'follow_up_task_created',
-      eventPayload: JSON.stringify({ taskId: task.id, outcome }),
+      eventPayload: JSON.stringify({ taskId: result.task.id, created: result.created }),
     })
 
-    await prisma.auditEvent
-      .create({
-        data: {
-          entityType: 'staff_task',
-          entityId: task.id,
-          action: 'TASK_CREATED_FROM_CALL',
-          actor: 'workflow-engine',
-          message: `Follow-up task created from call job ${job.id}.`,
-          metadataJson: JSON.stringify({ callJobId: job.id, outcome, callStatus: job.callStatus }),
-        },
-      })
-      .catch(() => null)
-
-    await updateCallJobIfPresent(job.id, {
-      staffFollowUpNeeded: true,
-      followUpReason: job.followUpReason ?? retry.reason,
-    })
-
-    res.status(201).json({ task, created: true })
+    res.status(result.created ? 201 : 200).json({ task: result.task, created: result.created })
   } catch (e) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Could not create follow-up task' })
   }

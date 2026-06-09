@@ -61,6 +61,11 @@ export function FollowUpTaskCard({
           <div className="flex flex-wrap gap-1">
             <Badge variant={priorityBadgeVariant(task.priority)}>{task.priority}</Badge>
             <Badge variant={statusBadgeVariant(task.status, overdue)}>{statusLabel}</Badge>
+            {task.createdFromCall && (
+              <Badge variant="secondary" className="text-[10px]">
+                From call
+              </Badge>
+            )}
           </div>
         </div>
 

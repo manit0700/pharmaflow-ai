@@ -57,6 +57,9 @@ export function FollowUpDetailPanel({
           <Badge variant={priorityBadgeVariant(task.priority)}>{task.priority}</Badge>
           <Badge variant={statusBadgeVariant(task.status, overdue)}>{statusLabel}</Badge>
           <Badge variant="outline">{task.taskType}</Badge>
+          {task.createdFromCall && (
+            <Badge variant="secondary">Created from call</Badge>
+          )}
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -65,16 +68,28 @@ export function FollowUpDetailPanel({
             <dt className="text-muted-foreground">Source workflow</dt>
             <dd className="text-right font-medium">{task.sourceWorkflow}</dd>
           </div>
+          {task.relatedCallId && (
+            <div className="flex justify-between gap-2">
+              <dt className="text-muted-foreground">Linked call</dt>
+              <dd className="font-mono text-xs">{task.relatedCallId.slice(0, 12)}…</dd>
+            </div>
+          )}
           {task.relatedCallAt && (
             <div className="flex justify-between gap-2">
               <dt className="text-muted-foreground">Related call</dt>
               <dd className="text-right">{formatTime(task.relatedCallAt)}</dd>
             </div>
           )}
+          {task.relatedCallStatus && (
+            <div className="flex justify-between gap-2">
+              <dt className="text-muted-foreground">Call status</dt>
+              <dd className="text-right capitalize">{task.relatedCallStatus.replace(/_/g, ' ')}</dd>
+            </div>
+          )}
           {task.relatedCallOutcome && (
             <div>
               <dt className="text-muted-foreground">Call result</dt>
-              <dd className="mt-0.5">{task.relatedCallOutcome}</dd>
+              <dd className="mt-0.5 break-words">{task.relatedCallOutcome}</dd>
             </div>
           )}
           <div className="flex justify-between gap-2">

@@ -11,6 +11,8 @@ export type FollowUpTaskType =
   | 'No Answer'
   | 'Failed Call'
   | 'Medication Adherence'
+  | 'Refill Request'
+  | 'Invalid Row'
 
 export type SourceWorkflow =
   | 'Refill Reminder'
@@ -35,6 +37,7 @@ export type ActivityType =
   | 'status_changed'
   | 'rescheduled'
   | 'completed'
+  | 'call_outcome'
 
 export interface FollowUpActivity {
   id: string
@@ -56,6 +59,8 @@ export interface FollowUpTask {
   relatedCallId?: string
   relatedCallAt?: string
   relatedCallOutcome?: string
+  relatedCallStatus?: string
+  createdFromCall?: boolean
   dueDate: string
   dueTime: string
   assignedTeam: AssignedTeam

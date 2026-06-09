@@ -139,6 +139,7 @@ export interface StaffTask {
   callJob?: {
     id: string
     callReason: string
+    callStatus?: string
     patientResponse: string | null
     callCompletedAt: string | null
     callAttemptedAt: string | null

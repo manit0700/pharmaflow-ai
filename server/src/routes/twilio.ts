@@ -22,6 +22,12 @@ import {
 } from '../services/twilioFlow.js'
 import { getCallScript } from '../services/callScripts.js'
 import { decodeCallbackState } from '../services/callbackState.js'
+import {
+  ensureFollowUpTaskForCallJob,
+  ensureFollowUpTaskForCallOutcome,
+  resolveOutcomeFromPatientAction,
+  type FollowUpOutcome,
+} from '../services/followUpTasks.js'
 import type { CallReason } from '../config.js'
 
 export const twilioRouter = Router()
@@ -100,20 +106,25 @@ async function createCallEventIfPossible(data: Parameters<typeof prisma.callEven
   }
 }
 
-async function createStaffTask(params: {
-  callJobId?: string
-  patientName: string
-  phoneNumber: string
-  medicationName?: string
-  taskType: string
-  priority: string
-  notes: string
-  aiSummary?: string
-}) {
+async function createFollowUpFromOutcome(
+  job: {
+    id: string
+    patientName: string
+    phoneNumber: string
+    medicationName: string
+    callReason: string
+    callStatus: string
+    patientResponse?: string | null
+    followUpReason?: string | null
+    staffFollowUpNeeded?: boolean
+    aiSummary?: string | null
+  },
+  outcome: FollowUpOutcome,
+) {
   try {
-    await prisma.staffTask.create({ data: params })
+    await ensureFollowUpTaskForCallOutcome(job, outcome)
   } catch {
-    // Do not fail a live call because the demo task store is unavailable.
+    // Do not fail a live call because task storage is unavailable.
   }
 }
 
@@ -199,6 +210,21 @@ twilioRouter.post('/twilio/status', async (req, res) => {
         summary: ErrorCode ? `${ErrorCode}: ${ErrorMessage ?? 'Twilio call error'}` : undefined,
       }),
     })
+
+    if (completed || finalFollowUpNeeded) {
+      const updatedJob = {
+        ...job,
+        callStatus: (finalCallStatus ?? normalizedStatus ?? job.callStatus) as string,
+        patientResponse: finalPatientResponse,
+        staffFollowUpNeeded: finalFollowUpNeeded,
+        followUpReason: finalFollowUpReason,
+      }
+      try {
+        await ensureFollowUpTaskForCallJob(updatedJob.id)
+      } catch {
+        // Non-blocking follow-up creation.
+      }
+    }
   }
 
   res.sendStatus(204)
@@ -256,14 +282,26 @@ async function handleVoiceResponse(req: import('express').Request, res: import('
 
     if (intent === 'staff') {
       if (inbound?.id) {
-        await createStaffTask({
-          patientName: 'Inbound caller',
-          phoneNumber: caller,
-          taskType: 'inbound_handoff',
-          priority: 'urgent',
-          notes: 'Inbound caller pressed 0 for staff',
-          aiSummary: inbound.summary ?? undefined,
-        })
+        try {
+          await ensureFollowUpTaskForCallOutcome(
+            {
+              id: inbound.id,
+              patientName: 'Inbound caller',
+              phoneNumber: caller,
+              medicationName: '',
+              callReason: 'general_callback',
+              callStatus: 'escalated',
+              patientResponse: 'Inbound caller requested staff',
+              followUpReason: 'Inbound caller pressed 0 for staff',
+              staffFollowUpNeeded: true,
+              aiSummary: inbound.summary,
+            },
+            'inbound_handoff',
+            { callJobId: null, skipCallJobLink: true },
+          )
+        } catch {
+          // Non-blocking inbound task creation.
+        }
       }
       res.type('text/xml').send(buildTransferTwiml())
       return
@@ -321,6 +359,8 @@ async function handleVoiceResponse(req: import('express').Request, res: import('
     await updateCallJobIfPossible(callJobId, {
       callStatus: 'voicemail',
       patientResponse: 'Voicemail',
+      staffFollowUpNeeded: true,
+      followUpReason: 'Call reached voicemail',
       transcriptJson: transcriptJsonWith(job.transcriptJson, {
         mode: 'system',
         step: 'answered_by',
@@ -328,6 +368,21 @@ async function handleVoiceResponse(req: import('express').Request, res: import('
         result: 'Voicemail',
       }),
     })
+    await createFollowUpFromOutcome(
+      {
+        id: job.id,
+        patientName: job.patientName,
+        phoneNumber: job.phoneNumber,
+        medicationName: job.medicationName,
+        callReason: job.callReason,
+        callStatus: 'voicemail',
+        patientResponse: 'Voicemail',
+        followUpReason: 'Call reached voicemail',
+        staffFollowUpNeeded: true,
+        aiSummary: job.aiSummary,
+      },
+      'voicemail',
+    )
     res.type('text/xml').send(buildVoicemailTwiml(reason, ctx))
     return
   }
@@ -395,15 +450,21 @@ async function handleDtmfVoiceResponse(
           action: 'callback',
         }),
       })
-      await createStaffTask({
-        callJobId,
-        patientName: job.patientName,
-        phoneNumber: job.phoneNumber,
-        medicationName: job.medicationName,
-        taskType: 'dob_failed',
-        priority: 'high',
-        notes: 'DOB verification failed during outbound call',
-      })
+      await createFollowUpFromOutcome(
+        {
+          id: job.id,
+          patientName: job.patientName,
+          phoneNumber: job.phoneNumber,
+          medicationName: job.medicationName,
+          callReason: reason,
+          callStatus: 'escalated',
+          patientResponse: 'DOB verification failed',
+          followUpReason: 'Patient could not verify date of birth on call',
+          staffFollowUpNeeded: true,
+          aiSummary: null,
+        },
+        'dob_failed',
+      )
       res.type('text/xml').send(buildVoicemailTwiml(reason, ctx))
       return
     }
@@ -451,17 +512,34 @@ async function handleDtmfVoiceResponse(
       }),
     })
 
-    if (needsStaff) {
-      await createStaffTask({
-        callJobId,
-        patientName: job.patientName,
-        phoneNumber: job.phoneNumber,
-        medicationName: job.medicationName,
-        taskType: option.action === 'callback' ? 'callback_request' : 'patient_request',
-        priority: option.action === 'transfer' ? 'urgent' : 'normal',
-        notes: option.patientResponse,
-        aiSummary,
-      })
+    const followUpOutcome =
+      resolveOutcomeFromPatientAction({
+        patientResponse: option.patientResponse,
+        action: option.action,
+        callReason: reason,
+      }) ??
+      (needsStaff
+        ? option.action === 'callback'
+          ? 'callback_requested'
+          : 'pharmacist_review'
+        : null)
+
+    if (followUpOutcome) {
+      await createFollowUpFromOutcome(
+        {
+          id: job.id,
+          patientName: job.patientName,
+          phoneNumber: job.phoneNumber,
+          medicationName: job.medicationName,
+          callReason: reason,
+          callStatus,
+          patientResponse: option.patientResponse,
+          followUpReason: option.patientResponse,
+          staffFollowUpNeeded: needsStaff,
+          aiSummary,
+        },
+        followUpOutcome,
+      )
     }
 
     res
@@ -552,17 +630,34 @@ async function handleAiVoiceResponse(
       }),
     })
 
-    if (needsStaff) {
-      await createStaffTask({
-        callJobId,
-        patientName: job.patientName,
-        phoneNumber: job.phoneNumber,
-        medicationName: job.medicationName,
-        taskType: turn.action === 'callback' ? 'callback_request' : 'patient_request',
-        priority: turn.action === 'transfer' ? 'urgent' : 'normal',
-        notes: turn.patientResponse ?? turn.summary ?? userText,
-        aiSummary: turn.summary,
-      })
+    const aiOutcome =
+      resolveOutcomeFromPatientAction({
+        patientResponse: turn.patientResponse ?? userText,
+        action: turn.action === 'callback' ? 'callback' : turn.action === 'transfer' ? 'transfer' : 'complete',
+        callReason: reason,
+      }) ??
+      (needsStaff
+        ? turn.action === 'callback'
+          ? 'callback_requested'
+          : 'pharmacist_review'
+        : null)
+
+    if (aiOutcome) {
+      await createFollowUpFromOutcome(
+        {
+          id: job.id,
+          patientName: job.patientName,
+          phoneNumber: job.phoneNumber,
+          medicationName: job.medicationName,
+          callReason: reason,
+          callStatus,
+          patientResponse: turn.patientResponse,
+          followUpReason: turn.patientResponse ?? turn.summary ?? null,
+          staffFollowUpNeeded: needsStaff,
+          aiSummary: turn.summary ?? aiSummary,
+        },
+        aiOutcome,
+      )
     }
 
     if (turn.action === 'continue') {

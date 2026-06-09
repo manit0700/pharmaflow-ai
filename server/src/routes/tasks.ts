@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { prisma } from '../lib/prisma.js'
+import { appendTaskActivity, createAuditEvent } from '../services/followUpTasks.js'
 
 export const tasksRouter = Router()
 
@@ -8,6 +9,7 @@ const taskInclude = {
     select: {
       id: true,
       callReason: true,
+      callStatus: true,
       patientResponse: true,
       callCompletedAt: true,
       callAttemptedAt: true,
@@ -16,48 +18,8 @@ const taskInclude = {
   },
   taskActivities: {
     orderBy: { createdAt: 'desc' as const },
-    take: 10,
+    take: 20,
   },
-}
-
-function serializeMetadata(metadata: Record<string, unknown>): string {
-  return JSON.stringify(metadata)
-}
-
-async function appendTaskActivity(
-  taskId: string,
-  activityType: string,
-  message: string,
-  metadata: Record<string, unknown> = {},
-) {
-  await prisma.taskActivity.create({
-    data: {
-      taskId,
-      activityType,
-      message,
-      actor: 'workflow-engine',
-      metadataJson: serializeMetadata(metadata),
-    },
-  })
-}
-
-async function createAuditEvent(
-  entityType: string,
-  entityId: string | null,
-  action: string,
-  message: string,
-  metadata: Record<string, unknown> = {},
-) {
-  await prisma.auditEvent.create({
-    data: {
-      entityType,
-      entityId,
-      action,
-      actor: 'workflow-engine',
-      message,
-      metadataJson: serializeMetadata(metadata),
-    },
-  })
 }
 
 async function persistTaskSideEffects(promises: Promise<unknown>[]) {
@@ -175,10 +137,10 @@ tasksRouter.patch('/tasks/:id', async (req, res) => {
 
     if (changedFields.length > 0) {
       await persistTaskSideEffects([
-        appendTaskActivity(task.id, 'task_updated', `Updated ${changedFields.join(', ')}.`, {
+        appendTaskActivity(task.id, 'status_change', `Updated ${changedFields.join(', ')}.`, {
           changes: changedFields,
         }),
-        createAuditEvent('staff_task', task.id, 'TASK_UPDATED', `Updated follow-up task ${task.id}.`, {
+        createAuditEvent('staff_task', task.id, 'TASK_STATUS_UPDATED', 'Follow-up task status updated.', {
           changedFields,
         }),
       ])
