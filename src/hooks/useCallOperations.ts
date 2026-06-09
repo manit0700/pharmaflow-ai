@@ -55,13 +55,15 @@ export function useCallOperations() {
     try {
       const h = await fetchHealth()
       const [jobsResult, tasksResult] = await Promise.allSettled([fetchCallJobs(), fetchTasks()])
-      const mergedJobs = mergeJobs(
-        jobsResult.status === 'fulfilled' ? jobsResult.value : [],
-        jobs,
-      )
       setHealth(h)
-      setJobs(mergedJobs)
-      writeLocalJobs(mergedJobs)
+      setJobs((prev) => {
+        const mergedJobs = mergeJobs(
+          jobsResult.status === 'fulfilled' ? jobsResult.value : [],
+          prev,
+        )
+        writeLocalJobs(mergedJobs)
+        return mergedJobs
+      })
       setTasks(tasksResult.status === 'fulfilled' ? tasksResult.value : [])
     } catch (e) {
       if (!silent) {
@@ -71,7 +73,7 @@ export function useCallOperations() {
     } finally {
       setLoading(false)
     }
-  }, [jobs])
+  }, [])
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => void refresh(), 0)
@@ -118,7 +120,10 @@ export function useCallOperations() {
     }
     setCallingId(id)
     try {
-      if (!currentJob) throw new Error('Call job not found in browser state. Refresh and try again.')
+      if (!currentJob) {
+        await refresh(true)
+        throw new Error('Call job not found in dashboard state. Please try again.')
+      }
       const job = await startCall(currentJob)
       setJobs((prev) => {
         const next = mergeJobs([job], prev)
@@ -166,7 +171,10 @@ export function useCallOperations() {
     const currentJob = jobs.find((j) => j.id === id)
     setCallingId(id)
     try {
-      if (!currentJob) throw new Error('Call job not found in browser state. Refresh and try again.')
+      if (!currentJob) {
+        await refresh(true)
+        throw new Error('Call job not found in dashboard state. Please try again.')
+      }
       const job = await retryCall(currentJob)
       setJobs((prev) => {
         const next = mergeJobs([job], prev)
