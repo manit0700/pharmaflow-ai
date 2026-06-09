@@ -221,6 +221,17 @@ export async function retryCall(job: CallJob): Promise<CallJob> {
   })
 }
 
+export async function updateCallJob(
+  id: string,
+  data: { callStatus?: string; notes?: string; followUpReason?: string },
+): Promise<CallJob> {
+  return request<CallJob>(`/call-jobs/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+}
+
 export async function importExcel(file: File): Promise<{ imported: number; valid: number; invalid: number }> {
   const form = new FormData()
   form.append('file', file)

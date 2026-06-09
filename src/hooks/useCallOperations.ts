@@ -8,6 +8,7 @@ import {
   importExcel,
   retryCall,
   startCall,
+  updateCallJob,
   type CallJob,
   type CreateCallJobInput,
   type HealthResponse,
@@ -190,6 +191,21 @@ export function useCallOperations() {
     }
   }
 
+  const onUpdateStatus = async (id: string, callStatus: string) => {
+    try {
+      const updated = await updateCallJob(id, { callStatus })
+      setJobs((prev) => {
+        const next = mergeJobs([updated], prev)
+        writeLocalJobs(next)
+        return next
+      })
+      toast.success(`Call status updated to ${callStatus.replace(/_/g, ' ')}`)
+      await refresh(true)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not update call status')
+    }
+  }
+
   const queued = jobs.filter(
     (j) => j.validationStatus === 'valid' && !['completed', 'failed'].includes(j.callStatus),
   )
@@ -208,6 +224,7 @@ export function useCallOperations() {
     onCreate,
     onStart,
     onRetry,
+    onUpdateStatus,
     queued,
     completed,
     invalid,

@@ -1,5 +1,4 @@
 import { Link } from 'react-router-dom'
-import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { KpiCard } from '@/components/shared/KpiCard'
 import { AddPatientForm } from '@/components/calls/AddPatientForm'
@@ -11,60 +10,8 @@ import { useCallOperations } from '@/hooks/useCallOperations'
 import type { KPIStat } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Button } from '@/components/ui/button'
-import { fetchAnalytics, type AnalyticsResponse } from '@/utils/api'
-
-function OwnerOverview({ analytics }: { analytics: AnalyticsResponse | null }) {
-  const metrics = analytics?.metrics
-  const attentionCount = analytics?.managerAttention.length ?? 0
-
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">Owner overview</CardTitle>
-            <CardDescription>Call performance and follow-up workload at a glance</CardDescription>
-          </div>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/analytics">Open analytics</Link>
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {metrics ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-md border border-border p-3">
-              <p className="text-xs text-muted-foreground">Completion rate</p>
-              <p className="mt-1 text-xl font-semibold">{metrics.successRate}%</p>
-            </div>
-            <div className="rounded-md border border-border p-3">
-              <p className="text-xs text-muted-foreground">Open follow-ups</p>
-              <p className="mt-1 text-xl font-semibold">{metrics.openFollowUpTasks}</p>
-            </div>
-            <div className="rounded-md border border-border p-3">
-              <p className="text-xs text-muted-foreground">Overdue tasks</p>
-              <p className={metrics.overdueFollowUpTasks > 0 ? 'mt-1 text-xl font-semibold text-destructive' : 'mt-1 text-xl font-semibold'}>
-                {metrics.overdueFollowUpTasks}
-              </p>
-            </div>
-            <div className="rounded-md border border-border p-3">
-              <p className="text-xs text-muted-foreground">Today’s attention</p>
-              <p className={attentionCount > 0 ? 'mt-1 text-xl font-semibold text-warning' : 'mt-1 text-xl font-semibold'}>
-                {attentionCount}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <Skeleton className="h-20 rounded-md" />
-        )}
-      </CardContent>
-    </Card>
-  )
-}
 
 export function DashboardPage() {
-  const [ownerAnalytics, setOwnerAnalytics] = useState<AnalyticsResponse | null>(null)
   const {
     health,
     jobs,
@@ -77,21 +24,11 @@ export function DashboardPage() {
     onCreate,
     onStart,
     onRetry,
-    onPreviewScript,
-    onSaveNotes,
-    onUpdateExistingJob,
-    onResolve,
-    onAddDoNotCall,
+    onUpdateStatus,
     queued,
     completed,
     invalid,
   } = useCallOperations()
-
-  useEffect(() => {
-    fetchAnalytics({ range: '7d' })
-      .then(setOwnerAnalytics)
-      .catch(() => setOwnerAnalytics(null))
-  }, [])
 
   const kpis: KPIStat[] = [
     {
@@ -128,9 +65,9 @@ export function DashboardPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Operations Dashboard</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Call jobs</h1>
           <p className="text-sm text-muted-foreground">
-            {queued.length} patient{queued.length === 1 ? '' : 's'} in queue · outbound calls and follow-up workload
+            {queued.length} patient{queued.length === 1 ? '' : 's'} in queue · outbound Excel auto-call
           </p>
         </div>
         <CallOpsToolbar
@@ -153,8 +90,6 @@ export function DashboardPage() {
           : kpis.map((k) => <KpiCard key={k.id} stat={k} />)}
       </div>
 
-      <OwnerOverview analytics={ownerAnalytics} />
-
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Add patient manually</CardTitle>
@@ -164,12 +99,8 @@ export function DashboardPage() {
         </CardHeader>
         <CardContent>
           <AddPatientForm
-            disabled={!health?.ok || loading || health?.database?.connected !== true}
-            apiOffline={!loading && !health?.ok}
-            databaseOffline={!loading && health?.ok === true && health.database?.connected !== true}
-            onSubmit={async (input) => {
-              await onCreate(input)
-            }}
+            disabled={!health?.ok}
+            onSubmit={async (input) => onCreate(input)}
           />
         </CardContent>
       </Card>
@@ -194,14 +125,9 @@ export function DashboardPage() {
             jobs={jobs}
             callingId={callingId}
             health={health}
-            emptyMessage="No call jobs yet. Add a patient above or import an Excel file."
             onStart={(id) => void onStart(id)}
             onRetry={(id) => void onRetry(id)}
-            onPreviewScript={onPreviewScript}
-            onSaveNotes={(id, notes) => void onSaveNotes(id, notes)}
-            onUpdateJob={(job, data) => void onUpdateExistingJob(job, data)}
-            onResolve={(id, notes) => void onResolve(id, notes)}
-            onAddDoNotCall={(job) => void onAddDoNotCall(job)}
+            onUpdateStatus={(id, status) => void onUpdateStatus(id, status)}
           />
         </CardContent>
       </Card>
@@ -226,6 +152,19 @@ export function DashboardPage() {
         </Card>
       )}
 
+      <p className="text-xs text-muted-foreground">
+        <Link to="/conversations" className="text-primary underline">
+          Call history
+        </Link>
+        {' · '}
+        <Link to="/workflows" className="text-primary underline">
+          Call flow
+        </Link>
+        {' · '}
+        <Link to="/integrations" className="text-primary underline">
+          Integrations
+        </Link>
+      </p>
     </div>
   )
 }
