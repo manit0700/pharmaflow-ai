@@ -34,6 +34,7 @@ export const config = {
   callAiModel: process.env.CALL_AI_MODEL ?? 'gpt-4o-mini',
   /** Outbound call script mode: dtmf (keypad) or ai (speech + OpenAI) */
   callMode: (process.env.CALL_MODE === 'ai' ? 'ai' : 'dtmf') as 'dtmf' | 'ai',
+  /** Optional call safety window (America/Chicago) */
   enforceBusinessHours: process.env.ENFORCE_BUSINESS_HOURS === 'true',
   businessHoursStart: Number(process.env.BUSINESS_HOURS_START ?? 8),
   businessHoursEnd: Number(process.env.BUSINESS_HOURS_END ?? 20),

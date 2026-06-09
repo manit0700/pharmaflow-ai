@@ -6,7 +6,6 @@ import {
   resolveTwilioAuthMode,
 } from '../lib/twilioAuth.js'
 import { buildInboundTwiml } from './twilioFlow.js'
-import { encodeCallbackState } from './callbackState.js'
 
 function getClient() {
   return getTwilioClient()
@@ -125,9 +124,9 @@ export async function startOutboundCall(params: {
   to: string
   callJobId: string
   callReason: CallReason
-  patientName: string
-  dob: string
-  medicationName: string
+  patientName?: string
+  dob?: string
+  medicationName?: string
 }): Promise<{ sid: string; status: string } | { testMode: true; sid: string }> {
   if (config.autoCallTestMode) {
     return { testMode: true, sid: `TEST_${params.callJobId}_${Date.now()}` }
@@ -141,32 +140,14 @@ export async function startOutboundCall(params: {
 
   const initialStep = config.callMode === 'ai' ? 'ai_greeting' : 'greeting'
   const mode = config.callMode
-  const urlParams = new URLSearchParams({
-    callJobId: params.callJobId,
-    step: initialStep,
-    reason: params.callReason,
-    mode,
-    state: encodeCallbackState({
-      id: params.callJobId,
-      patientName: params.patientName,
-      phoneNumber: params.to,
-      dob: params.dob,
-      medicationName: params.medicationName,
-      callReason: params.callReason,
-    }),
-  })
-  const callbackParams = new URLSearchParams({
-    callJobId: params.callJobId,
-    state: urlParams.get('state') ?? '',
-  })
 
   try {
     const call = await client.calls.create({
       to: params.to,
       from: config.twilioPhoneNumber,
-      url: `${config.publicBaseUrl}/api/twilio/voice-response?${urlParams.toString()}`,
+      url: `${config.publicBaseUrl}/api/twilio/voice-response?callJobId=${params.callJobId}&step=${initialStep}&reason=${params.callReason}&mode=${mode}`,
       method: 'POST',
-      statusCallback: `${config.publicBaseUrl}/api/twilio/status?${callbackParams.toString()}`,
+      statusCallback: `${config.publicBaseUrl}/api/twilio/status`,
       statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
       statusCallbackMethod: 'POST',
       machineDetection: 'Enable',
