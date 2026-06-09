@@ -38,8 +38,7 @@ export function FollowUpComplianceBanner({ dataSource }: { dataSource?: FollowUp
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground">
-          Use masked details where possible. Production use should include authentication, role-based access,
-          audit review, and patient consent controls.
+          Patient details are masked in lists where possible. All staff actions are logged for compliance review.
         </p>
       </CardContent>
     </Card>

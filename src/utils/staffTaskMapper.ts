@@ -238,6 +238,3 @@ export function followUpToStaffTaskPayload(task: FollowUpTask): Record<string, s
   }
 }
 
-export function isMockFollowUpId(id: string): boolean {
-  return id.startsWith('fu-') || id.startsWith('fu-demo-')
-}

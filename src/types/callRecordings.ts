@@ -58,7 +58,7 @@ export interface CallRecordingRecord {
   keyTags: string[]
   transcript: TranscriptLine[]
   relatedFollowUpTaskId?: string
-  liveSource?: 'api' | 'mock'
+  liveSource?: 'api'
   twilioCallSid?: string | null
   twilioStatus?: string | null
   finalOutcome?: string

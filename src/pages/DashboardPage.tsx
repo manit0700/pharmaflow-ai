@@ -128,9 +128,9 @@ export function DashboardPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Call jobs</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Operations Dashboard</h1>
           <p className="text-sm text-muted-foreground">
-            {queued.length} patient{queued.length === 1 ? '' : 's'} in queue · outbound Excel auto-call
+            {queued.length} patient{queued.length === 1 ? '' : 's'} in queue · outbound calls and follow-up workload
           </p>
         </div>
         <CallOpsToolbar
@@ -221,19 +221,6 @@ export function DashboardPage() {
         </Card>
       )}
 
-      <p className="text-xs text-muted-foreground">
-        <Link to="/conversations" className="text-primary underline">
-          Call history
-        </Link>
-        {' · '}
-        <Link to="/workflows" className="text-primary underline">
-          Call flow
-        </Link>
-        {' · '}
-        <Link to="/integrations" className="text-primary underline">
-          Integrations
-        </Link>
-      </p>
     </div>
   )
 }

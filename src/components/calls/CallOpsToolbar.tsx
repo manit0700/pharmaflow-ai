@@ -23,7 +23,10 @@ export function CallOpsToolbar({
         <Badge variant="destructive">Restart API (add patient needs update)</Badge>
       )}
       {health?.ok && health.testMode && (
-        <Badge variant="secondary">Simulated calls</Badge>
+        <Badge variant="secondary">Test mode</Badge>
+      )}
+      {health?.ok && health.database?.connected && health.database.provider === 'postgres' && (
+        <Badge variant="success">Postgres</Badge>
       )}
       {health?.ok && health.twilioAccount?.type && (
         <Badge variant={health.twilioAccount.type === 'Trial' ? 'warning' : 'success'}>

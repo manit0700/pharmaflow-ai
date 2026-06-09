@@ -1,6 +1,10 @@
 import { Card, CardContent } from '@/components/ui/card'
 import type { HealthResponse } from '@/utils/api'
 
+function isDeployedSite(): boolean {
+  return typeof window !== 'undefined' && window.location.hostname.endsWith('vercel.app')
+}
+
 export function CallStatusBanners({
   health,
   loading,
@@ -11,7 +15,7 @@ export function CallStatusBanners({
   if (loading && !health) {
     return (
       <Card className="border-border/60">
-        <CardContent className="p-4 text-sm text-muted-foreground">Connecting to API…</CardContent>
+        <CardContent className="p-4 text-sm text-muted-foreground">Connecting to PharmaFlow API…</CardContent>
       </Card>
     )
   }
@@ -21,13 +25,16 @@ export function CallStatusBanners({
       <Card className="border-destructive/40 bg-destructive/5">
         <CardContent className="space-y-2 p-4 text-sm">
           <p>
-            <strong>Cannot reach API.</strong> Start both servers on your PC:
+            <strong>Cannot reach the API.</strong>{' '}
+            {isDeployedSite()
+              ? 'Check /api/health on this deployment, then refresh the page.'
+              : 'Start the local stack with npm run dev:pc, then reload.'}
           </p>
-          <code className="block text-xs">cd ~/Projects/pharmaflow-ai && npm run dev:pc</code>
-          <p className="text-muted-foreground">
-            Open <strong>http://localhost:5173/dashboard</strong> (use the port Vite prints if
-            different). API health: <code className="text-xs">http://localhost:4002/api/health</code>
-          </p>
+          {!isDeployedSite() && (
+            <p className="text-muted-foreground">
+              API health: <code className="text-xs">http://localhost:4002/api/health</code>
+            </p>
+          )}
         </CardContent>
       </Card>
     )
@@ -40,12 +47,20 @@ export function CallStatusBanners({
 
   return (
     <>
+      {health.database?.provider === 'postgres' && health.database.connected === false && (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="p-4 text-sm">
+            <strong>Database connection failed.</strong>{' '}
+            {health.database.warning ?? 'Verify DATABASE_URL and Postgres availability.'}
+          </CardContent>
+        </Card>
+      )}
+
       {health.testMode && (
         <Card className="border-primary/30 bg-primary/5">
           <CardContent className="p-4 text-sm">
-            <strong>Test call mode</strong> — Calls simulate instantly (no Twilio ring). For real
-            calls, set <code className="text-xs">AUTO_CALL_TEST_MODE=false</code> in{' '}
-            <code className="text-xs">{configFile}</code> and restart the API.
+            <strong>Test call mode</strong> — Outbound calls complete instantly without a live Twilio ring.
+            Set <code className="text-xs">AUTO_CALL_TEST_MODE=false</code> for production dialing.
           </CardContent>
         </Card>
       )}
@@ -68,11 +83,12 @@ export function CallStatusBanners({
                 <li key={issue}>{issue}</li>
               ))}
             </ul>
-            <p className="text-muted-foreground">
-              On your PC: run <code className="text-xs">npm run ngrok:tunnel</code>, paste the HTTPS
-              URL into <code>PUBLIC_BASE_URL</code> in <code>{configFile}</code>, then restart the
-              API.
-            </p>
+            {!isDeployedSite() && (
+              <p className="text-muted-foreground">
+                Set <code>PUBLIC_BASE_URL</code> to your HTTPS webhook URL in <code>{configFile}</code>, then restart
+                the API.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -86,17 +102,17 @@ export function CallStatusBanners({
           }
         >
           <CardContent className="space-y-2 p-4 text-sm">
-            <strong>Live Twilio mode</strong> — calling from{' '}
-            <code className="text-xs">{health.twilioFromNumber ?? 'unknown'}</code>
+            <strong>Live outbound calling</strong> — from{' '}
+            <code className="text-xs">{health.twilioFromNumber ?? 'configured number'}</code>
             {health.twilioAccount?.friendlyName && (
               <span> · {health.twilioAccount.friendlyName}</span>
             )}
             {health.callMode === 'ai' && health.aiCallConfigured && (
-              <span> · AI calls ({health.callAiModel ?? 'OpenAI'})</span>
+              <span> · AI conversations ({health.callAiModel ?? 'OpenAI'})</span>
             )}
             {health.twilioAccount?.type === 'Trial' ? (
               <p className="text-muted-foreground">
-                Twilio reports <strong>Trial</strong> — only{' '}
+                Twilio trial account — only{' '}
                 <a
                   href="https://console.twilio.com/us1/develop/phone-numbers/manage/verified"
                   className="text-primary underline"
@@ -105,12 +121,10 @@ export function CallStatusBanners({
                 >
                   verified numbers
                 </a>{' '}
-                can be called. Upgrade billing or use test mode.
+                can be called until billing is enabled.
               </p>
             ) : health.twilioAccount?.type === 'Full' ? (
-              <p className="text-muted-foreground">
-                Paid account — outbound calls to patient numbers are enabled.
-              </p>
+              <p className="text-muted-foreground">Paid Twilio account — outbound patient calls enabled.</p>
             ) : null}
           </CardContent>
         </Card>

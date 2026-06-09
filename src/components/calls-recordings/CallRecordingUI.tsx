@@ -273,9 +273,22 @@ export function CallRecordingDashboard() {
     }
   }
 
-  const simulateRefresh = () => {
+  const refreshCalls = () => {
     void loadCalls()
   }
+
+  const metricTrends = useMemo(
+    () => ({
+      total: metrics.total === 0 ? 'No calls recorded yet' : `${metrics.total} in call history`,
+      completed:
+        metrics.total > 0 ? `${Math.round((metrics.completed / metrics.total) * 100)}% of total volume` : '—',
+      failed: metrics.failed > 0 ? 'Review retry and callback queue' : 'No failures in period',
+      followUp: metrics.followUp > 0 ? `${metrics.followUp} need staff action` : 'No open follow-ups from calls',
+      avg: metrics.avg > 0 ? 'Average completed call length' : '—',
+      success: metrics.successRate > 0 ? 'Completed vs total calls' : '—',
+    }),
+    [metrics],
+  )
 
   const exportLogs = () => {
     exportBlob('call-recording-logs.json', { generatedAt: new Date().toISOString(), records: filtered })
@@ -304,7 +317,7 @@ export function CallRecordingDashboard() {
         <CardContent className="space-y-3 p-6 text-sm">
           <p className="font-medium">We hit a temporary error loading call recordings.</p>
           <p className="text-muted-foreground">Please retry after confirming the API and database are available.</p>
-          <Button onClick={simulateRefresh}>
+          <Button onClick={refreshCalls}>
             <RefreshCw className="h-4 w-4" />
             Retry
           </Button>
@@ -317,9 +330,9 @@ export function CallRecordingDashboard() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Call Recordings</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Calls</h1>
           <p className="text-sm text-muted-foreground">
-            Review AI outbound pharmacy calls, transcripts, outcomes, and follow-up actions.
+            Outbound call outcomes, transcripts, retry scheduling, and follow-up actions from your pharmacy queue.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -327,7 +340,7 @@ export function CallRecordingDashboard() {
             <Download className="h-4 w-4" />
             Export Logs
           </Button>
-          <Button variant="outline" onClick={simulateRefresh}>
+          <Button variant="outline" onClick={refreshCalls}>
             <RefreshCw className="h-4 w-4" />
             Refresh
           </Button>
@@ -351,19 +364,19 @@ export function CallRecordingDashboard() {
           </p>
           {liveJobCount > 0 && (
             <Badge variant="success" className="mt-1">
-              {liveJobCount} live call job{liveJobCount === 1 ? '' : 's'} from Postgres
+              {liveJobCount} call record{liveJobCount === 1 ? '' : 's'} loaded
             </Badge>
           )}
         </CardContent>
       </Card>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <MetricCard icon={<Phone className="h-4 w-4" />} label="Total Calls" value={String(metrics.total)} trend="+12% this week" />
-        <MetricCard icon={<CheckCircle2 className="h-4 w-4" />} label="Completed Calls" value={String(metrics.completed)} trend="Stable completion rate" />
-        <MetricCard icon={<XCircle className="h-4 w-4" />} label="No Answer / Failed" value={String(metrics.failed)} trend="Demo data" />
-        <MetricCard icon={<TriangleAlert className="h-4 w-4" />} label="Follow-up Required" value={String(metrics.followUp)} trend="Needs staff review" />
-        <MetricCard icon={<Clock3 className="h-4 w-4" />} label="Average Duration" value={formatDuration(metrics.avg)} trend="~2 minute calls" />
-        <MetricCard icon={<TrendingUp className="h-4 w-4" />} label="Success Rate" value={`${metrics.successRate}%`} trend="Completed outcomes" />
+        <MetricCard icon={<Phone className="h-4 w-4" />} label="Total Calls" value={String(metrics.total)} trend={metricTrends.total} />
+        <MetricCard icon={<CheckCircle2 className="h-4 w-4" />} label="Completed Calls" value={String(metrics.completed)} trend={metricTrends.completed} />
+        <MetricCard icon={<XCircle className="h-4 w-4" />} label="No Answer / Failed" value={String(metrics.failed)} trend={metricTrends.failed} />
+        <MetricCard icon={<TriangleAlert className="h-4 w-4" />} label="Follow-up Required" value={String(metrics.followUp)} trend={metricTrends.followUp} />
+        <MetricCard icon={<Clock3 className="h-4 w-4" />} label="Average Duration" value={formatDuration(metrics.avg)} trend={metricTrends.avg} />
+        <MetricCard icon={<TrendingUp className="h-4 w-4" />} label="Success Rate" value={`${metrics.successRate}%`} trend={metricTrends.success} />
       </section>
 
       <Card>

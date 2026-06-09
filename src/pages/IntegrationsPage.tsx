@@ -16,7 +16,7 @@ export function IntegrationsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Integrations</h1>
           <p className="text-sm text-muted-foreground">
-            Live connection status from your PC API — Twilio, OpenAI, database, webhooks
+            Connection status for Twilio, OpenAI, database, and webhook infrastructure
           </p>
         </div>
         <Button variant="outline" size="sm" disabled={loading} onClick={() => void refresh()}>
@@ -45,7 +45,8 @@ export function IntegrationsPage() {
             <span className="rounded-md border border-border bg-card px-3 py-2">PharmaFlow API</span>
             <ArrowRight className="h-4 w-4 text-muted-foreground" />
             <span className="flex items-center gap-1 rounded-md border border-border bg-card px-3 py-2">
-              <Database className="h-4 w-4" /> SQLite
+              <Database className="h-4 w-4" />{' '}
+              {health?.database?.provider === 'postgres' ? 'PostgreSQL' : 'Database'}
             </span>
             <ArrowRight className="h-4 w-4 text-muted-foreground" />
             <span className="flex items-center gap-1 rounded-md border border-border bg-card px-3 py-2">
