@@ -10,6 +10,8 @@ import type {
   SortOption,
 } from '@/types/followUps'
 
+export type { FollowUpStatus }
+
 const PRIORITY_ORDER: Record<FollowUpPriority, number> = {
   Urgent: 0,
   High: 1,
@@ -17,8 +19,12 @@ const PRIORITY_ORDER: Record<FollowUpPriority, number> = {
   Low: 3,
 }
 
+export function isTaskTerminal(task: FollowUpTask): boolean {
+  return task.status === 'Completed' || task.status === 'Cancelled'
+}
+
 export function isTaskOverdue(task: FollowUpTask, now = new Date()): boolean {
-  if (task.status === 'Completed') return false
+  if (isTaskTerminal(task)) return false
   const due = new Date(`${task.dueDate}T${task.dueTime}:00`)
   return due < now
 }
@@ -81,11 +87,13 @@ function matchesDueDateFilter(task: FollowUpTask, filter: FollowUpFilters['dueDa
 
 function matchesPriorityTab(task: FollowUpTask, tab: FollowUpFilters['priorityTab']): boolean {
   if (tab === 'all') return true
-  if (tab === 'urgent') return task.priority === 'Urgent'
+  if (tab === 'urgent') return task.priority === 'Urgent' && !isTaskTerminal(task)
   if (tab === 'open') return task.status === 'Open'
   if (tab === 'in_progress') return task.status === 'In Progress'
   if (tab === 'completed') return task.status === 'Completed'
+  if (tab === 'cancelled') return task.status === 'Cancelled'
   if (tab === 'overdue') return isTaskOverdue(task)
+  if (tab === 'from_call') return Boolean(task.createdFromCall)
   return true
 }
 
@@ -136,10 +144,13 @@ function sortTasks(tasks: FollowUpTask[], sort: SortOption): FollowUpTask[] {
 export function filterAndSortTasks(tasks: FollowUpTask[], filters: FollowUpFilters, now = new Date()): FollowUpTask[] {
   let result = tasks.filter((task) => {
     if (!matchesPriorityTab(task, filters.priorityTab)) return false
+    if (filters.status !== 'all' && task.status !== filters.status) return false
     if (filters.priority !== 'all' && task.priority !== filters.priority) return false
     if (filters.taskType !== 'all' && task.taskType !== filters.taskType) return false
     if (filters.assigned !== 'all' && task.assignedTeam !== filters.assigned) return false
     if (!matchesDueDateFilter(task, filters.dueDate, now)) return false
+    if (filters.createdFromCall === 'yes' && !task.createdFromCall) return false
+    if (filters.createdFromCall === 'no' && task.createdFromCall) return false
     if (!matchesSearch(task, filters.search)) return false
     return true
   })
@@ -153,9 +164,10 @@ export function priorityBadgeVariant(priority: FollowUpPriority): 'destructive' 
   return 'secondary'
 }
 
-export function statusBadgeVariant(status: FollowUpStatus, overdue: boolean): 'destructive' | 'default' | 'success' | 'outline' {
+export function statusBadgeVariant(status: FollowUpStatus, overdue: boolean): 'destructive' | 'default' | 'success' | 'outline' | 'secondary' {
   if (overdue) return 'destructive'
   if (status === 'Completed') return 'success'
+  if (status === 'Cancelled') return 'secondary'
   if (status === 'In Progress') return 'default'
   return 'outline'
 }
@@ -167,19 +179,19 @@ export function displayStatus(task: FollowUpTask, now = new Date()): string {
 
 export function computeSummaryMetrics(tasks: FollowUpTask[], now = new Date()) {
   const todayStr = now.toISOString().slice(0, 10)
-  const open = tasks.filter((t) => t.status !== 'Completed').length
-  const urgent = tasks.filter((t) => t.priority === 'Urgent' && t.status !== 'Completed').length
+  const open = tasks.filter((t) => !isTaskTerminal(t)).length
+  const urgent = tasks.filter((t) => t.priority === 'Urgent' && !isTaskTerminal(t)).length
   const inProgress = tasks.filter((t) => t.status === 'In Progress').length
   const completedToday = tasks.filter((t) => t.status === 'Completed' && t.updatedAt.slice(0, 10) === todayStr).length
-  const callbacks = tasks.filter((t) => t.taskType === 'Callback' && t.status !== 'Completed').length
+  const callbacks = tasks.filter((t) => t.taskType === 'Callback' && !isTaskTerminal(t)).length
   const pharmacistReview = tasks.filter(
-    (t) => t.taskType === 'Pharmacist Review' && t.status !== 'Completed',
+    (t) => t.taskType === 'Pharmacist Review' && !isTaskTerminal(t),
   ).length
   return { open, urgent, inProgress, completedToday, callbacks, pharmacistReview }
 }
 
 export function computeAnalytics(tasks: FollowUpTask[], now = new Date()) {
-  const openTasks = tasks.filter((t) => t.status !== 'Completed')
+  const openTasks = tasks.filter((t) => !isTaskTerminal(t))
   const completed = tasks.filter((t) => t.status === 'Completed').length
   const overdue = openTasks.filter((t) => isTaskOverdue(t, now)).length
 
@@ -252,7 +264,11 @@ export const TASK_TYPES: FollowUpTaskType[] = [
   'No Answer',
   'Failed Call',
   'Medication Adherence',
+  'Refill Request',
+  'Invalid Row',
 ]
+
+export const STATUS_OPTIONS: FollowUpStatus[] = ['Open', 'In Progress', 'Completed', 'Cancelled']
 
 export const ASSIGNED_TEAMS: AssignedTeam[] = [
   'Unassigned',

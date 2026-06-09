@@ -342,7 +342,7 @@ export const FOLLOW_UPS_MOCK: FollowUpTask[] = [
 ]
 
 export function getOpenFollowUpCount(tasks: FollowUpTask[]): number {
-  return tasks.filter((t) => t.status !== 'Completed').length
+  return tasks.filter((t) => t.status !== 'Completed' && t.status !== 'Cancelled').length
 }
 
 export function getFollowUpByCallId(tasks: FollowUpTask[], callId: string): FollowUpTask | undefined {

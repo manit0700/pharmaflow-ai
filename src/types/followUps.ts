@@ -1,6 +1,6 @@
 export type FollowUpPriority = 'Urgent' | 'High' | 'Medium' | 'Low'
 
-export type FollowUpStatus = 'Open' | 'In Progress' | 'Completed'
+export type FollowUpStatus = 'Open' | 'In Progress' | 'Completed' | 'Cancelled'
 
 export type FollowUpTaskType =
   | 'Callback'
@@ -37,7 +37,10 @@ export type ActivityType =
   | 'status_changed'
   | 'rescheduled'
   | 'completed'
+  | 'cancelled'
   | 'call_outcome'
+  | 'priority_changed'
+  | 'due_date_changed'
 
 export interface FollowUpActivity {
   id: string
@@ -65,6 +68,7 @@ export interface FollowUpTask {
   dueTime: string
   assignedTeam: AssignedTeam
   issueSummary: string
+  staffNotes?: string
   aiRecommendedAction: string
   activity: FollowUpActivity[]
   lastActivityAt: string
@@ -72,7 +76,7 @@ export interface FollowUpTask {
   updatedAt: string
 }
 
-export type PriorityTab = 'all' | 'urgent' | 'open' | 'in_progress' | 'completed' | 'overdue'
+export type PriorityTab = 'all' | 'urgent' | 'open' | 'in_progress' | 'completed' | 'cancelled' | 'overdue' | 'from_call'
 
 export type PriorityFilter = 'all' | FollowUpPriority
 
@@ -89,13 +93,19 @@ export type SortOption =
   | 'oldest'
   | 'recently_updated'
 
+export type StatusFilter = 'all' | FollowUpStatus
+
+export type CreatedFromCallFilter = 'all' | 'yes' | 'no'
+
 export interface FollowUpFilters {
   search: string
   priorityTab: PriorityTab
+  status: StatusFilter
   priority: PriorityFilter
   taskType: TaskTypeFilter
   assigned: AssignedFilter
   dueDate: DueDateFilter
+  createdFromCall: CreatedFromCallFilter
   sort: SortOption
 }
 

@@ -9,10 +9,17 @@ import {
 } from 'react'
 import { FOLLOW_UPS_MOCK, getOpenFollowUpCount } from '@/data/followUpsMock'
 import type { FollowUpActivity, FollowUpTask } from '@/types/followUps'
-import { createStaffTask, fetchTasks, updateTask as patchStaffTask } from '@/utils/api'
+import {
+  createStaffTask,
+  fetchTasks,
+  updateTask as patchStaffTask,
+  type TaskUpdateInput,
+} from '@/utils/api'
 import {
   followUpToStaffTaskPayload,
   isMockFollowUpId,
+  mapPriorityToApi,
+  mapStatusToApi,
   staffTaskToFollowUp,
 } from '@/utils/staffTaskMapper'
 
@@ -23,9 +30,11 @@ interface FollowUpContextValue {
   openCount: number
   dataSource: FollowUpDataSource
   loading: boolean
+  savingTaskId: string | null
   error: string | null
   refresh: () => Promise<void>
   updateTask: (id: string, patch: Partial<FollowUpTask>) => Promise<void>
+  applyTaskUpdate: (id: string, patch: TaskUpdateInput) => Promise<FollowUpTask | void>
   addTask: (task: FollowUpTask) => Promise<FollowUpTask | void>
   appendActivity: (id: string, activity: FollowUpActivity) => Promise<void>
 }
@@ -36,6 +45,7 @@ export function FollowUpProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<FollowUpTask[]>([])
   const [dataSource, setDataSource] = useState<FollowUpDataSource>('loading')
   const [loading, setLoading] = useState(true)
+  const [savingTaskId, setSavingTaskId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
@@ -64,6 +74,54 @@ export function FollowUpProvider({ children }: { children: ReactNode }) {
     const id = setInterval(() => void refresh(), 15000)
     return () => clearInterval(id)
   }, [refresh])
+
+  const applyTaskUpdate = useCallback(
+    async (id: string, patch: TaskUpdateInput) => {
+      if (dataSource !== 'api' || isMockFollowUpId(id)) {
+        let updated: FollowUpTask | null = null
+        setTasks((prev) =>
+          prev.map((t) => {
+            if (t.id !== id) return t
+            updated = {
+              ...t,
+              ...(patch.status && {
+                status:
+                  patch.status === 'in_progress'
+                    ? 'In Progress'
+                    : patch.status === 'completed'
+                      ? 'Completed'
+                      : patch.status === 'cancelled'
+                        ? 'Cancelled'
+                        : 'Open',
+              }),
+              ...(patch.assignedTeam && { assignedTeam: patch.assignedTeam as FollowUpTask['assignedTeam'] }),
+              ...(patch.dueDate && { dueDate: patch.dueDate }),
+              ...(patch.dueTime && { dueTime: patch.dueTime }),
+              updatedAt: new Date().toISOString(),
+            }
+            return updated
+          }),
+        )
+        return updated ?? undefined
+      }
+
+      setSavingTaskId(id)
+      setError(null)
+      try {
+        const updated = await patchStaffTask(id, patch)
+        const mapped = staffTaskToFollowUp(updated)
+        setTasks((prev) => prev.map((t) => (t.id === id ? mapped : t)))
+        return mapped
+      } catch (e) {
+        const message = e instanceof Error ? e.message : 'Could not save task update'
+        setError(message)
+        throw e
+      } finally {
+        setSavingTaskId(null)
+      }
+    },
+    [dataSource],
+  )
 
   const persistPatch = useCallback(
     async (id: string, next: FollowUpTask) => {
@@ -148,9 +206,11 @@ export function FollowUpProvider({ children }: { children: ReactNode }) {
         openCount,
         dataSource,
         loading,
+        savingTaskId,
         error,
         refresh,
         updateTask,
+        applyTaskUpdate,
         addTask,
         appendActivity,
       }}
@@ -164,4 +224,12 @@ export function useFollowUpContext() {
   const ctx = useContext(FollowUpContext)
   if (!ctx) throw new Error('useFollowUpContext must be used within FollowUpProvider')
   return ctx
+}
+
+export function followUpStatusPatch(status: FollowUpTask['status']): string {
+  return mapStatusToApi(status)
+}
+
+export function followUpPriorityPatch(priority: FollowUpTask['priority']): string {
+  return mapPriorityToApi(priority)
 }

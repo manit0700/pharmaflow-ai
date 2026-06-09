@@ -3,7 +3,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ASSIGNED_TEAMS, PRIORITIES, TASK_TYPES } from './FollowUpHelpers'
+import { ASSIGNED_TEAMS, PRIORITIES, STATUS_OPTIONS, TASK_TYPES } from './FollowUpHelpers'
 import type { FollowUpFilters, PriorityTab } from '@/types/followUps'
 
 interface FollowUpFiltersBarProps {
@@ -16,8 +16,10 @@ const TABS: { value: PriorityTab; label: string }[] = [
   { value: 'urgent', label: 'Urgent' },
   { value: 'open', label: 'Open' },
   { value: 'in_progress', label: 'In Progress' },
-  { value: 'completed', label: 'Completed' },
   { value: 'overdue', label: 'Overdue' },
+  { value: 'from_call', label: 'From Call' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'cancelled', label: 'Cancelled' },
 ]
 
 function FilterSelect({
@@ -75,7 +77,13 @@ export function FollowUpFiltersBar({ filters, onChange }: FollowUpFiltersBarProp
               aria-label="Search follow-up tasks"
             />
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
+            <FilterSelect
+              label="Status"
+              value={filters.status}
+              onValueChange={(v) => onChange({ status: v as FollowUpFilters['status'] })}
+              options={[{ value: 'all', label: 'All' }, ...STATUS_OPTIONS.map((s) => ({ value: s, label: s }))]}
+            />
             <FilterSelect
               label="Priority"
               value={filters.priority}
@@ -113,6 +121,16 @@ export function FollowUpFiltersBar({ filters, onChange }: FollowUpFiltersBarProp
                 { value: 'this_week', label: 'This Week' },
                 { value: 'overdue', label: 'Overdue' },
                 { value: 'all', label: 'All Time' },
+              ]}
+            />
+            <FilterSelect
+              label="Call source"
+              value={filters.createdFromCall}
+              onValueChange={(v) => onChange({ createdFromCall: v as FollowUpFilters['createdFromCall'] })}
+              options={[
+                { value: 'all', label: 'All' },
+                { value: 'yes', label: 'Created from call' },
+                { value: 'no', label: 'Manual only' },
               ]}
             />
             <FilterSelect

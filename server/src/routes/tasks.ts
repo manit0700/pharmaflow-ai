@@ -18,8 +18,22 @@ const taskInclude = {
   },
   taskActivities: {
     orderBy: { createdAt: 'desc' as const },
-    take: 20,
+    take: 30,
   },
+}
+
+type TaskPatchBody = {
+  status?: string
+  notes?: string
+  appendNote?: string
+  priority?: string
+  assignedTeam?: string
+  dueDate?: string
+  dueTime?: string
+  sourceWorkflow?: string
+  issueSummary?: string
+  activityJson?: string
+  aiSummary?: string
 }
 
 async function persistTaskSideEffects(promises: Promise<unknown>[]) {
@@ -30,6 +44,124 @@ async function persistTaskSideEffects(promises: Promise<unknown>[]) {
       console.warn('Task audit side effect failed', message)
     }
   }
+}
+
+function formatDueLabel(dueDate: string | null, dueTime: string | null): string {
+  if (!dueDate) return 'not set'
+  return `${dueDate}${dueTime ? ` at ${dueTime}` : ''}`
+}
+
+async function recordTaskPatchSideEffects(
+  taskId: string,
+  existing: {
+    status: string
+    priority: string
+    assignedTeam: string
+    dueDate: string | null
+    dueTime: string
+    notes: string | null
+  },
+  patch: TaskPatchBody,
+) {
+  const effects: Promise<unknown>[] = []
+
+  if (patch.status !== undefined && patch.status !== existing.status) {
+    const activityType =
+      patch.status === 'completed' ? 'task_completed' : patch.status === 'cancelled' ? 'task_cancelled' : 'status_change'
+    const auditAction =
+      patch.status === 'completed'
+        ? 'TASK_COMPLETED'
+        : patch.status === 'cancelled'
+          ? 'TASK_CANCELLED'
+          : 'TASK_STATUS_UPDATED'
+    const message =
+      patch.status === 'completed'
+        ? 'Task marked complete.'
+        : patch.status === 'cancelled'
+          ? 'Task cancelled.'
+          : `Status changed from ${existing.status} to ${patch.status}.`
+
+    effects.push(
+      appendTaskActivity(taskId, activityType, message, {
+        from: existing.status,
+        to: patch.status,
+      }),
+      createAuditEvent('staff_task', taskId, auditAction, 'Follow-up task status updated.', {
+        from: existing.status,
+        to: patch.status,
+      }),
+    )
+  }
+
+  if (patch.assignedTeam !== undefined && patch.assignedTeam !== existing.assignedTeam) {
+    effects.push(
+      appendTaskActivity(
+        taskId,
+        'assignment_changed',
+        `Assigned from ${existing.assignedTeam} to ${patch.assignedTeam}.`,
+        { from: existing.assignedTeam, to: patch.assignedTeam },
+      ),
+      createAuditEvent('staff_task', taskId, 'TASK_ASSIGNED', 'Follow-up task assignment updated.', {
+        from: existing.assignedTeam,
+        to: patch.assignedTeam,
+      }),
+    )
+  }
+
+  if (patch.priority !== undefined && patch.priority !== existing.priority) {
+    effects.push(
+      appendTaskActivity(
+        taskId,
+        'priority_changed',
+        `Priority changed from ${existing.priority} to ${patch.priority}.`,
+        { from: existing.priority, to: patch.priority },
+      ),
+      createAuditEvent('staff_task', taskId, 'TASK_PRIORITY_UPDATED', 'Follow-up task priority updated.', {
+        from: existing.priority,
+        to: patch.priority,
+      }),
+    )
+  }
+
+  const dueChanged =
+    (patch.dueDate !== undefined && patch.dueDate !== existing.dueDate) ||
+    (patch.dueTime !== undefined && patch.dueTime !== existing.dueTime)
+
+  if (dueChanged) {
+    const nextDate = patch.dueDate !== undefined ? patch.dueDate : existing.dueDate
+    const nextTime = patch.dueTime !== undefined ? patch.dueTime : existing.dueTime
+    effects.push(
+      appendTaskActivity(
+        taskId,
+        'due_date_changed',
+        `Due date changed from ${formatDueLabel(existing.dueDate, existing.dueTime)} to ${formatDueLabel(nextDate, nextTime)}.`,
+        {
+          fromDate: existing.dueDate,
+          fromTime: existing.dueTime,
+          toDate: nextDate,
+          toTime: nextTime,
+        },
+      ),
+      createAuditEvent('staff_task', taskId, 'TASK_DUE_DATE_UPDATED', 'Follow-up task due date updated.', {
+        fromDate: existing.dueDate,
+        toDate: nextDate,
+      }),
+    )
+  }
+
+  if (patch.appendNote?.trim()) {
+    effects.push(
+      appendTaskActivity(taskId, 'note_added', 'Staff note added.', { hasNote: true }),
+      createAuditEvent('staff_task', taskId, 'TASK_NOTE_ADDED', 'Staff note added to follow-up task.', {}),
+    )
+  } else if (patch.notes !== undefined && patch.notes !== existing.notes && patch.notes.trim()) {
+    effects.push(
+      appendTaskActivity(taskId, 'note_added', 'Staff notes updated.', { hasNote: true }),
+      createAuditEvent('staff_task', taskId, 'TASK_NOTE_ADDED', 'Staff notes updated on follow-up task.', {}),
+    )
+  }
+
+  await persistTaskSideEffects(effects)
 }
 
 tasksRouter.get('/tasks', async (_req, res) => {
@@ -71,7 +203,7 @@ tasksRouter.post('/tasks', async (req, res) => {
         assignedTeam: task.assignedTeam,
         callJobId: task.callJobId,
       }),
-      createAuditEvent('staff_task', task.id, 'TASK_CREATED', `Created follow-up task ${task.id}.`, {
+      createAuditEvent('staff_task', task.id, 'TASK_CREATED', 'Follow-up task created.', {
         taskType: task.taskType,
         status: task.status,
       }),
@@ -87,70 +219,47 @@ tasksRouter.post('/tasks', async (req, res) => {
 
 tasksRouter.patch('/tasks/:id', async (req, res) => {
   try {
-    const { status, notes, priority, assignedTeam, dueDate, dueTime, sourceWorkflow, issueSummary, activityJson, aiSummary } =
-      req.body as {
-        status?: string
-        notes?: string
-        priority?: string
-        assignedTeam?: string
-        dueDate?: string
-        dueTime?: string
-        sourceWorkflow?: string
-        issueSummary?: string
-        activityJson?: string
-        aiSummary?: string
-      }
+    const body = req.body as TaskPatchBody
     const existingTask = await prisma.staffTask.findUnique({ where: { id: req.params.id } })
     if (!existingTask) {
       res.status(404).json({ error: 'Task not found' })
       return
     }
 
+    const nextNotes = body.appendNote?.trim()
+      ? [existingTask.notes, body.appendNote.trim()].filter(Boolean).join('\n')
+      : body.notes !== undefined
+        ? body.notes
+        : existingTask.notes
+
+    const nextStatus = body.status ?? existingTask.status
+    const terminalStatus = nextStatus === 'completed' || nextStatus === 'cancelled'
+
     const task = await prisma.staffTask.update({
       where: { id: req.params.id },
       data: {
-        ...(status && { status }),
-        ...(notes !== undefined && { notes }),
-        ...(priority && { priority }),
-        ...(assignedTeam && { assignedTeam }),
-        ...(dueDate !== undefined && { dueDate }),
-        ...(dueTime && { dueTime }),
-        ...(sourceWorkflow !== undefined && { sourceWorkflow }),
-        ...(issueSummary !== undefined && { issueSummary }),
-        ...(activityJson !== undefined && { activityJson }),
-        ...(aiSummary !== undefined && { aiSummary }),
-        ...(status === 'completed' && { completedAt: new Date() }),
-        ...(status && status !== 'completed' && existingTask.status === 'completed' && { completedAt: null }),
+        ...(body.status !== undefined && { status: body.status }),
+        ...(nextNotes !== existingTask.notes && { notes: nextNotes }),
+        ...(body.priority !== undefined && { priority: body.priority }),
+        ...(body.assignedTeam !== undefined && { assignedTeam: body.assignedTeam }),
+        ...(body.dueDate !== undefined && { dueDate: body.dueDate }),
+        ...(body.dueTime !== undefined && { dueTime: body.dueTime }),
+        ...(body.sourceWorkflow !== undefined && { sourceWorkflow: body.sourceWorkflow }),
+        ...(body.issueSummary !== undefined && { issueSummary: body.issueSummary }),
+        ...(body.activityJson !== undefined && { activityJson: body.activityJson }),
+        ...(body.aiSummary !== undefined && { aiSummary: body.aiSummary }),
+        ...(body.status === 'completed' && { completedAt: new Date() }),
+        ...(body.status !== undefined && body.status !== 'completed' && existingTask.status === 'completed' && { completedAt: null }),
+        ...(body.status === 'cancelled' && { completedAt: new Date() }),
+        ...(body.status !== undefined && !terminalStatus && existingTask.status === 'cancelled' && { completedAt: null }),
       },
       include: taskInclude,
     })
 
-    const changedFields = [
-      status !== undefined && status !== existingTask.status ? `status: ${existingTask.status} -> ${status}` : null,
-      priority !== undefined && priority !== existingTask.priority ? `priority: ${existingTask.priority} -> ${priority}` : null,
-      assignedTeam !== undefined && assignedTeam !== existingTask.assignedTeam
-        ? `assigned team: ${existingTask.assignedTeam} -> ${assignedTeam}`
-        : null,
-      dueDate !== undefined && dueDate !== existingTask.dueDate ? `due date: ${existingTask.dueDate ?? 'none'} -> ${dueDate ?? 'none'}` : null,
-      dueTime !== undefined && dueTime !== existingTask.dueTime ? `due time: ${existingTask.dueTime} -> ${dueTime}` : null,
-    ].filter(Boolean)
-
-    if (changedFields.length > 0) {
-      await persistTaskSideEffects([
-        appendTaskActivity(task.id, 'status_change', `Updated ${changedFields.join(', ')}.`, {
-          changes: changedFields,
-        }),
-        createAuditEvent('staff_task', task.id, 'TASK_STATUS_UPDATED', 'Follow-up task status updated.', {
-          changedFields,
-        }),
-      ])
-    } else {
-      await persistTaskSideEffects([
-        createAuditEvent('staff_task', task.id, 'TASK_UPDATED', `Updated follow-up task ${task.id}.`, {
-          changedFields,
-        }),
-      ])
-    }
+    await recordTaskPatchSideEffects(existingTask.id, existingTask, {
+      ...body,
+      notes: nextNotes ?? undefined,
+    })
 
     const updatedTask = await prisma.staffTask.findUnique({ where: { id: task.id }, include: taskInclude })
     res.json(updatedTask ?? task)

@@ -93,12 +93,14 @@ function mapStatusFromApi(status: string): FollowUpStatus {
   const s = status.toLowerCase()
   if (s === 'in_progress' || s === 'in progress') return 'In Progress'
   if (s === 'completed') return 'Completed'
+  if (s === 'cancelled') return 'Cancelled'
   return 'Open'
 }
 
 export function mapStatusToApi(status: FollowUpStatus): string {
   if (status === 'In Progress') return 'in_progress'
   if (status === 'Completed') return 'completed'
+  if (status === 'Cancelled') return 'cancelled'
   return 'open'
 }
 
@@ -113,13 +115,17 @@ export function mapTaskTypeToApi(taskType: FollowUpTaskType): string {
 function mapActivityTypeFromApi(activityType: string): FollowUpActivity['type'] {
   const normalized = activityType.toLowerCase()
   if (normalized === 'task_created' || normalized === 'created') return 'created'
-  if (normalized === 'assignment' || normalized === 'assigned') return 'assigned'
+  if (normalized === 'assignment_changed' || normalized === 'assignment' || normalized === 'assigned') {
+    return 'assigned'
+  }
   if (normalized === 'note_added' || normalized === 'note') return 'note'
   if (normalized === 'status_change' || normalized === 'status_changed' || normalized === 'task_updated') {
     return 'status_changed'
   }
-  if (normalized === 'rescheduled') return 'rescheduled'
-  if (normalized === 'completed') return 'completed'
+  if (normalized === 'priority_changed') return 'priority_changed'
+  if (normalized === 'due_date_changed' || normalized === 'rescheduled') return 'due_date_changed'
+  if (normalized === 'task_completed' || normalized === 'completed') return 'completed'
+  if (normalized === 'task_cancelled' || normalized === 'cancelled') return 'cancelled'
   if (normalized === 'call_outcome_detected' || normalized === 'call_outcome') return 'call_outcome'
   return 'created'
 }
@@ -192,6 +198,7 @@ export function staffTaskToFollowUp(task: StaffTask): FollowUpTask {
     dueTime: task.dueTime ?? '15:00',
     assignedTeam: (task.assignedTeam as AssignedTeam) ?? 'Unassigned',
     issueSummary,
+    staffNotes: task.notes ?? undefined,
     aiRecommendedAction:
       task.aiSummary ?? 'Review task details and take appropriate follow-up action.',
     activity,
@@ -199,6 +206,18 @@ export function staffTaskToFollowUp(task: StaffTask): FollowUpTask {
     createdAt: task.createdAt,
     updatedAt: task.updatedAt ?? task.createdAt,
   }
+}
+
+export type TaskUpdateInput = {
+  status?: string
+  priority?: string
+  assignedTeam?: string
+  dueDate?: string
+  dueTime?: string
+  notes?: string
+  appendNote?: string
+  issueSummary?: string
+  aiSummary?: string
 }
 
 export function followUpToStaffTaskPayload(task: FollowUpTask): Record<string, string | null> {
@@ -215,7 +234,7 @@ export function followUpToStaffTaskPayload(task: FollowUpTask): Record<string, s
     issueSummary: task.issueSummary,
     aiSummary: task.aiRecommendedAction,
     activityJson: JSON.stringify(task.activity),
-    notes: task.issueSummary,
+    notes: task.staffNotes ?? task.issueSummary,
   }
 }
 

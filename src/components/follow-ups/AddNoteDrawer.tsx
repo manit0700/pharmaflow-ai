@@ -7,19 +7,29 @@ import { DrawerShell } from './CreateTaskDrawer'
 interface AddNoteDrawerProps {
   open: boolean
   onClose: () => void
-  onSave: (note: string) => void
+  onSave: (note: string) => Promise<void>
 }
 
 export function AddNoteDrawer({ open, onClose, onSave }: AddNoteDrawerProps) {
   const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   if (!open) return null
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!note.trim()) return
-    onSave(note.trim())
-    setNote('')
-    onClose()
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(note.trim())
+      setNote('')
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save note')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -32,12 +42,16 @@ export function AddNoteDrawer({ open, onClose, onSave }: AddNoteDrawerProps) {
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={4}
+            disabled={saving}
             placeholder="Left voicemail for patient."
           />
         </div>
+        {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSave} disabled={!note.trim()}>Save Note</Button>
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={() => void handleSave()} disabled={!note.trim() || saving}>
+            {saving ? 'Saving…' : 'Save Note'}
+          </Button>
         </div>
       </div>
     </DrawerShell>

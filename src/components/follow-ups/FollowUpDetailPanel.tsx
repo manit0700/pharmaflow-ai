@@ -8,32 +8,40 @@ import {
   formatDueDisplay,
   formatTime12,
   isTaskOverdue,
+  isTaskTerminal,
   priorityBadgeVariant,
   statusBadgeVariant,
 } from './FollowUpHelpers'
 import { formatTime } from '@/lib/utils'
-import type { FollowUpTask } from '@/types/followUps'
+import type { FollowUpPriority, FollowUpTask } from '@/types/followUps'
+import { cn } from '@/lib/utils'
 
 interface FollowUpDetailPanelProps {
   task: FollowUpTask | null
+  saving?: boolean
   onStartTask: () => void
   onAssign: () => void
   onAddNote: () => void
   onReschedule: () => void
   onMarkComplete: () => void
+  onCancelTask: () => void
   onReopen: () => void
   onViewCall: () => void
+  onPriorityChange: (priority: FollowUpPriority) => void
 }
 
 export function FollowUpDetailPanel({
   task,
+  saving = false,
   onStartTask,
   onAssign,
   onAddNote,
   onReschedule,
   onMarkComplete,
+  onCancelTask,
   onReopen,
   onViewCall,
+  onPriorityChange,
 }: FollowUpDetailPanelProps) {
   if (!task) {
     return (
@@ -47,9 +55,17 @@ export function FollowUpDetailPanel({
 
   const overdue = isTaskOverdue(task)
   const statusLabel = displayStatus(task)
+  const terminal = isTaskTerminal(task)
 
   return (
-    <Card className="border-border/70 xl:sticky xl:top-4">
+    <Card
+      className={cn(
+        'border-border/70 xl:sticky xl:top-4',
+        task.status === 'Completed' && 'border-success/30 bg-success/5',
+        task.status === 'Cancelled' && 'border-muted bg-muted/20 opacity-90',
+        task.priority === 'Urgent' && !terminal && 'border-destructive/30',
+      )}
+    >
       <CardHeader className="pb-3">
         <CardTitle className="text-lg">{task.patientMasked}</CardTitle>
         <p className="text-sm text-muted-foreground">{task.phoneMasked}</p>
@@ -57,9 +73,7 @@ export function FollowUpDetailPanel({
           <Badge variant={priorityBadgeVariant(task.priority)}>{task.priority}</Badge>
           <Badge variant={statusBadgeVariant(task.status, overdue)}>{statusLabel}</Badge>
           <Badge variant="outline">{task.taskType}</Badge>
-          {task.createdFromCall && (
-            <Badge variant="secondary">Created from call</Badge>
-          )}
+          {task.createdFromCall && <Badge variant="secondary">Created from call</Badge>}
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -112,23 +126,33 @@ export function FollowUpDetailPanel({
 
         <div>
           <h3 className="mb-1 text-sm font-semibold">Issue summary</h3>
-          <p className="text-sm">{task.issueSummary}</p>
+          <p className="text-sm break-words">{task.issueSummary}</p>
         </div>
+
+        {task.staffNotes && (
+          <div>
+            <h3 className="mb-1 text-sm font-semibold">Staff notes</h3>
+            <p className="whitespace-pre-wrap text-sm break-words text-muted-foreground">{task.staffNotes}</p>
+          </div>
+        )}
 
         <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
           <h3 className="mb-1 text-sm font-semibold">AI recommended next action</h3>
-          <p className="text-sm">{task.aiRecommendedAction}</p>
+          <p className="text-sm break-words">{task.aiRecommendedAction}</p>
         </div>
 
         <FollowUpActions
           task={task}
+          saving={saving}
           onStartTask={onStartTask}
           onAssign={onAssign}
           onAddNote={onAddNote}
           onReschedule={onReschedule}
           onMarkComplete={onMarkComplete}
+          onCancelTask={onCancelTask}
           onReopen={onReopen}
           onViewCall={onViewCall}
+          onPriorityChange={onPriorityChange}
         />
 
         <Separator />

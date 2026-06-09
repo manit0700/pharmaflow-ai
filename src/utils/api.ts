@@ -439,21 +439,21 @@ export async function fetchAuditEvents(): Promise<AuditResponse> {
   return request<AuditResponse>('/audit-events')
 }
 
-export async function updateTask(
-  id: string,
-  data: {
-    status?: string
-    notes?: string
-    priority?: string
-    assignedTeam?: string
-    dueDate?: string
-    dueTime?: string
-    sourceWorkflow?: string
-    issueSummary?: string
-    activityJson?: string
-    aiSummary?: string
-  },
-): Promise<StaffTask> {
+export type TaskUpdateInput = {
+  status?: string
+  notes?: string
+  appendNote?: string
+  priority?: string
+  assignedTeam?: string
+  dueDate?: string
+  dueTime?: string
+  sourceWorkflow?: string
+  issueSummary?: string
+  activityJson?: string
+  aiSummary?: string
+}
+
+export async function updateTask(id: string, data: TaskUpdateInput): Promise<StaffTask> {
   return request<StaffTask>(`/tasks/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },

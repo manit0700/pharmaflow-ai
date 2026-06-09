@@ -279,8 +279,14 @@ export function resolveOutcomeFromPatientAction(params: {
   callReason: string
 }): FollowUpOutcome | null {
   const responseLower = params.patientResponse.toLowerCase()
+  const reason = params.callReason.toLowerCase()
   if (params.action === 'callback' || responseLower.includes('callback')) return 'callback_requested'
-  if (params.action === 'transfer' || responseLower.includes('pharmacist')) return 'pharmacist_review'
+  if (params.action === 'transfer') {
+    if (reason.includes('insurance') || responseLower.includes('insurance')) return 'insurance_review'
+    if (reason.includes('delivery') || responseLower.includes('delivery')) return 'delivery_issue'
+    return 'pharmacist_review'
+  }
+  if (responseLower.includes('pharmacist')) return 'pharmacist_review'
   if (responseLower.includes('confirmed refill') || responseLower.includes('process today')) {
     return 'refill_request'
   }
@@ -288,8 +294,6 @@ export function resolveOutcomeFromPatientAction(params: {
   if (responseLower.includes('delivery') && responseLower.includes('reschedule')) {
     return 'delivery_issue'
   }
-  if (params.callReason.includes('insurance') && params.action === 'transfer') return 'insurance_review'
-  if (params.callReason.includes('delivery') && params.action === 'transfer') return 'delivery_issue'
   return null
 }
 

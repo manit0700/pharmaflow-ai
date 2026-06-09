@@ -5,9 +5,10 @@ import {
   displayStatus,
   formatActivityTime,
   formatDueDisplay,
+  isTaskOverdue,
+  isTaskTerminal,
   priorityBadgeVariant,
   statusBadgeVariant,
-  isTaskOverdue,
 } from './FollowUpHelpers'
 import type { FollowUpTask } from '@/types/followUps'
 import { cn } from '@/lib/utils'
@@ -33,12 +34,16 @@ export function FollowUpTaskCard({
 }: FollowUpTaskCardProps) {
   const overdue = isTaskOverdue(task)
   const statusLabel = displayStatus(task)
+  const terminal = isTaskTerminal(task)
 
   return (
     <Card
       className={cn(
         'cursor-pointer border-border/70 transition-colors hover:border-primary/40',
         selected && 'border-primary ring-1 ring-primary/30',
+        task.status === 'Completed' && 'bg-success/5',
+        task.status === 'Cancelled' && 'bg-muted/30 opacity-80',
+        task.priority === 'Urgent' && !terminal && 'border-destructive/40',
       )}
       onClick={onSelect}
       role="button"
@@ -88,7 +93,7 @@ export function FollowUpTaskCard({
         </div>
 
         {task.relatedCallOutcome && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground break-words">
             <span className="font-medium">Call outcome:</span> {task.relatedCallOutcome}
           </p>
         )}
@@ -100,19 +105,21 @@ export function FollowUpTaskCard({
           <Button size="sm" variant="outline" onClick={onSelect} aria-label="View details">
             View Details
           </Button>
-          <Button size="sm" variant="outline" onClick={onAssign} aria-label="Assign staff">
-            Assign
-          </Button>
-          <Button size="sm" variant="outline" onClick={onAddNote} aria-label="Add note">
-            Add Note
-          </Button>
-          <Button size="sm" variant="outline" onClick={onReschedule} aria-label="Reschedule">
-            Reschedule
-          </Button>
-          {task.status !== 'Completed' && (
-            <Button size="sm" variant="outline" onClick={onMarkComplete} aria-label="Mark complete">
-              Mark Complete
-            </Button>
+          {!terminal && (
+            <>
+              <Button size="sm" variant="outline" onClick={onAssign} aria-label="Assign staff">
+                Assign
+              </Button>
+              <Button size="sm" variant="outline" onClick={onAddNote} aria-label="Add note">
+                Add Note
+              </Button>
+              <Button size="sm" variant="outline" onClick={onReschedule} aria-label="Reschedule">
+                Reschedule
+              </Button>
+              <Button size="sm" variant="outline" onClick={onMarkComplete} aria-label="Mark complete">
+                Mark Complete
+              </Button>
+            </>
           )}
         </div>
       </CardContent>
