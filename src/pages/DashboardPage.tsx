@@ -164,8 +164,9 @@ export function DashboardPage() {
         </CardHeader>
         <CardContent>
           <AddPatientForm
-            disabled={!health?.ok || loading}
+            disabled={!health?.ok || loading || health?.database?.connected !== true}
             apiOffline={!loading && !health?.ok}
+            databaseOffline={!loading && health?.ok === true && health.database?.connected !== true}
             onSubmit={async (input) => {
               await onCreate(input)
             }}

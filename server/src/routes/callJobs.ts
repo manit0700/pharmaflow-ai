@@ -159,7 +159,15 @@ callJobsRouter.post('/call-jobs', async (req, res) => {
 
     res.status(201).json(job)
   } catch (e) {
-    res.status(400).json({ error: e instanceof Error ? e.message : 'Create failed' })
+    const message = e instanceof Error ? e.message : 'Create failed'
+    if (message.includes('DATABASE_URL')) {
+      res.status(503).json({
+        error:
+          'Database is not configured. Set DATABASE_URL in server/local.config.json or server/.env, run npm run db:migrate, and restart the API.',
+      })
+      return
+    }
+    res.status(400).json({ error: message })
   }
 })
 

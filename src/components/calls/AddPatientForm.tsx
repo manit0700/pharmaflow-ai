@@ -28,10 +28,12 @@ export function AddPatientForm({
   onSubmit,
   disabled,
   apiOffline,
+  databaseOffline,
 }: {
   onSubmit: (input: CreateCallJobInput) => Promise<void>
   disabled?: boolean
   apiOffline?: boolean
+  databaseOffline?: boolean
 }) {
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
@@ -76,7 +78,16 @@ export function AddPatientForm({
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
       {apiOffline && (
         <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          API is offline — start the backend or check deployment health before adding patients.
+          API is offline — run <code className="text-xs">npm run dev:pc</code> locally or check deployment health.
+        </p>
+      )}
+
+      {databaseOffline && (
+        <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          Database is not connected. Set <code className="text-xs">DATABASE_URL</code> in{' '}
+          <code className="text-xs">server/local.config.json</code> (copy from{' '}
+          <code className="text-xs">server/local.config.example.json</code>), then run{' '}
+          <code className="text-xs">npm run db:migrate</code> and restart the API.
         </p>
       )}
 
@@ -168,7 +179,7 @@ export function AddPatientForm({
       </div>
       <Button type="submit" disabled={disabled || saving}>
         <Plus className="h-3.5 w-3.5" />
-        {saving ? 'Adding…' : apiOffline ? 'API offline' : 'Add to call queue'}
+        {saving ? 'Adding…' : apiOffline ? 'API offline' : databaseOffline ? 'Database offline' : 'Add to call queue'}
       </Button>
     </form>
   )

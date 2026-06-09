@@ -37,6 +37,10 @@ export function loadSettings(): ConfigSource {
 
   normalizeDatabaseEnv()
 
+  if (!process.env.DATABASE_URL?.trim()) {
+    process.env.DATABASE_URL = 'file:./dev.db'
+  }
+
   return configSource
 }
 
