@@ -137,7 +137,7 @@ export function FollowUpTaskList({
 
       {/* Desktop footer hint */}
       <p className="hidden text-xs text-muted-foreground md:block">
-        Showing {tasks.length} task{tasks.length !== 1 ? 's' : ''}. Last activity timestamps use local demo time.
+        Showing {tasks.length} task{tasks.length !== 1 ? 's' : ''}. Activity timestamps use your local timezone.
       </p>
     </>
   )

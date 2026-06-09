@@ -7,7 +7,6 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { FOLLOW_UPS_MOCK, getOpenFollowUpCount } from '@/data/followUpsMock'
 import type { FollowUpActivity, FollowUpTask } from '@/types/followUps'
 import {
   createStaffTask,
@@ -17,13 +16,12 @@ import {
 } from '@/utils/api'
 import {
   followUpToStaffTaskPayload,
-  isMockFollowUpId,
   mapPriorityToApi,
   mapStatusToApi,
   staffTaskToFollowUp,
 } from '@/utils/staffTaskMapper'
 
-export type FollowUpDataSource = 'api' | 'mock' | 'loading'
+export type FollowUpDataSource = 'api' | 'offline' | 'loading'
 
 interface FollowUpContextValue {
   tasks: FollowUpTask[]
@@ -53,17 +51,12 @@ export function FollowUpProvider({ children }: { children: ReactNode }) {
     setError(null)
     try {
       const apiTasks = await fetchTasks()
-      if (apiTasks.length > 0) {
-        setTasks(apiTasks.map(staffTaskToFollowUp))
-        setDataSource('api')
-      } else {
-        setTasks(FOLLOW_UPS_MOCK)
-        setDataSource('mock')
-      }
-    } catch {
-      setTasks(FOLLOW_UPS_MOCK)
-      setDataSource('mock')
-      setError(null)
+      setTasks(apiTasks.map(staffTaskToFollowUp))
+      setDataSource('api')
+    } catch (e) {
+      setTasks([])
+      setDataSource('offline')
+      setError(e instanceof Error ? e.message : 'Could not load follow-up tasks')
     } finally {
       setLoading(false)
     }
@@ -77,34 +70,6 @@ export function FollowUpProvider({ children }: { children: ReactNode }) {
 
   const applyTaskUpdate = useCallback(
     async (id: string, patch: TaskUpdateInput) => {
-      if (dataSource !== 'api' || isMockFollowUpId(id)) {
-        let updated: FollowUpTask | null = null
-        setTasks((prev) =>
-          prev.map((t) => {
-            if (t.id !== id) return t
-            updated = {
-              ...t,
-              ...(patch.status && {
-                status:
-                  patch.status === 'in_progress'
-                    ? 'In Progress'
-                    : patch.status === 'completed'
-                      ? 'Completed'
-                      : patch.status === 'cancelled'
-                        ? 'Cancelled'
-                        : 'Open',
-              }),
-              ...(patch.assignedTeam && { assignedTeam: patch.assignedTeam as FollowUpTask['assignedTeam'] }),
-              ...(patch.dueDate && { dueDate: patch.dueDate }),
-              ...(patch.dueTime && { dueTime: patch.dueTime }),
-              updatedAt: new Date().toISOString(),
-            }
-            return updated
-          }),
-        )
-        return updated ?? undefined
-      }
-
       setSavingTaskId(id)
       setError(null)
       try {
@@ -125,7 +90,7 @@ export function FollowUpProvider({ children }: { children: ReactNode }) {
 
   const persistPatch = useCallback(
     async (id: string, next: FollowUpTask) => {
-      if (dataSource !== 'api' || isMockFollowUpId(id)) return
+      if (dataSource !== 'api') return
       await patchStaffTask(id, followUpToStaffTaskPayload(next))
     },
     [dataSource],
@@ -165,39 +130,39 @@ export function FollowUpProvider({ children }: { children: ReactNode }) {
 
   const addTask = useCallback(
     async (task: FollowUpTask) => {
-      if (dataSource === 'api') {
-        try {
-          const payload = followUpToStaffTaskPayload(task)
-          const created = await createStaffTask({
-            patientName: payload.patientName as string,
-            phoneNumber: payload.phoneNumber as string,
-            taskType: payload.taskType as string,
-            priority: payload.priority as string,
-            status: payload.status as string,
-            assignedTeam: payload.assignedTeam as string,
-            dueDate: payload.dueDate as string,
-            dueTime: payload.dueTime as string,
-            sourceWorkflow: payload.sourceWorkflow as string,
-            issueSummary: payload.issueSummary as string,
-            aiSummary: payload.aiSummary as string,
-            activityJson: payload.activityJson as string,
-            notes: payload.notes as string,
-          })
-          const mapped = staffTaskToFollowUp(created)
-          setTasks((prev) => [mapped, ...prev])
-          return mapped
-        } catch (e) {
-          setError(e instanceof Error ? e.message : 'Could not create task')
-          throw e
-        }
+      try {
+        const payload = followUpToStaffTaskPayload(task)
+        const created = await createStaffTask({
+          patientName: payload.patientName as string,
+          phoneNumber: payload.phoneNumber as string,
+          taskType: payload.taskType as string,
+          priority: payload.priority as string,
+          status: payload.status as string,
+          assignedTeam: payload.assignedTeam as string,
+          dueDate: payload.dueDate as string,
+          dueTime: payload.dueTime as string,
+          sourceWorkflow: payload.sourceWorkflow as string,
+          issueSummary: payload.issueSummary as string,
+          aiSummary: payload.aiSummary as string,
+          activityJson: payload.activityJson as string,
+          notes: payload.notes as string,
+        })
+        const mapped = staffTaskToFollowUp(created)
+        setTasks((prev) => [mapped, ...prev])
+        setDataSource('api')
+        return mapped
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not create task')
+        throw e
       }
-      setTasks((prev) => [task, ...prev])
-      return task
     },
-    [dataSource],
+    [],
   )
 
-  const openCount = useMemo(() => getOpenFollowUpCount(tasks), [tasks])
+  const openCount = useMemo(
+    () => tasks.filter((task) => task.status === 'Open' || task.status === 'In Progress').length,
+    [tasks],
+  )
 
   return (
     <FollowUpContext.Provider

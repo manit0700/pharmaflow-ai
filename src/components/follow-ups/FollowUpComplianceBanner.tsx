@@ -9,14 +9,14 @@ export function FollowUpComplianceBanner({ dataSource }: { dataSource?: FollowUp
       <CardContent className="space-y-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <p className="flex-1 text-sm">
-            <strong>Demo data only.</strong> Do not use real patient information in this environment. Follow-up
-            activity may contain PHI in production and should be accessed only by authorized pharmacy staff.
+            <strong>Staff-only workflow.</strong> Follow-up activity may contain protected health information and
+            should be accessed only by authorized pharmacy staff.
           </p>
           {dataSource === 'api' && (
             <Badge variant="success">Live task queue</Badge>
           )}
-          {dataSource === 'mock' && (
-            <Badge variant="warning">Demo queue (no API tasks yet)</Badge>
+          {dataSource === 'offline' && (
+            <Badge variant="destructive">API unavailable</Badge>
           )}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -30,7 +30,7 @@ export function FollowUpComplianceBanner({ dataSource }: { dataSource?: FollowUp
           </Badge>
           <Badge variant="outline" className="gap-1">
             <Database className="h-3 w-3" aria-hidden />
-            Demo Data
+            Postgres Backed
           </Badge>
           <Badge variant="outline" className="gap-1">
             <Users className="h-3 w-3" aria-hidden />
@@ -38,8 +38,8 @@ export function FollowUpComplianceBanner({ dataSource }: { dataSource?: FollowUp
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground">
-          This page uses demo data only. In production, follow-up tasks may include protected health information
-          and should require authentication, role-based access, audit logging, and patient consent controls.
+          Use masked details where possible. Production use should include authentication, role-based access,
+          audit review, and patient consent controls.
         </p>
       </CardContent>
     </Card>

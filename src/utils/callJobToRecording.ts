@@ -92,14 +92,8 @@ export function callJobToRecording(job: CallJob): CallRecordingRecord {
   }
 }
 
-export function mergeRecordingSources(
-  liveJobs: CallJob[],
-  mockRecords: CallRecordingRecord[],
-): CallRecordingRecord[] {
-  const live = liveJobs.map(callJobToRecording)
-  const liveIds = new Set(live.map((record) => record.id))
-  const mockOnly = mockRecords.filter((record) => !liveIds.has(record.id))
-  return [...live, ...mockOnly].sort(
+export function mergeRecordingSources(liveJobs: CallJob[]): CallRecordingRecord[] {
+  return liveJobs.map(callJobToRecording).sort(
     (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
   )
 }

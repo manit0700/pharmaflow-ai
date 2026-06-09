@@ -2,6 +2,12 @@ import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
+if (process.env.ALLOW_SAMPLE_DATA !== 'true') {
+  console.log('No seed data inserted. Set ALLOW_SAMPLE_DATA=true to load sample training records.')
+  await prisma.$disconnect()
+  process.exit(0)
+}
+
 const jobs = [
   {
     patientName: 'Maria Test',
@@ -9,7 +15,7 @@ const jobs = [
     dob: '01/01/1980',
     medicationName: 'Medication A',
     callReason: 'refill_reminder',
-    notes: 'Fake demo refill row',
+    notes: 'Sample refill row',
     validationStatus: 'valid',
     callStatus: 'completed',
     patientResponse: 'Confirmed refill request',
@@ -23,7 +29,7 @@ const jobs = [
     dob: '02/02/1975',
     medicationName: 'Medication B',
     callReason: 'pickup_reminder',
-    notes: 'Fake demo pickup row',
+    notes: 'Sample pickup row',
     validationStatus: 'valid',
     callStatus: 'no_answer',
     patientResponse: null,
@@ -64,7 +70,7 @@ const reviewTask = await prisma.staffTask.create({
         id: 'seed-activity-1',
         type: 'created',
         actor: 'workflow-engine',
-        message: 'Task created from demo no-answer call.',
+        message: 'Task created from sample no-answer call.',
         timestamp: new Date().toISOString(),
       },
     ]),
@@ -76,7 +82,7 @@ await prisma.taskActivity.createMany({
     {
       taskId: reviewTask.id,
       activityType: 'task_created',
-      message: 'Task created from demo no-answer call.',
+      message: 'Task created from sample no-answer call.',
       actor: 'workflow-engine',
       metadataJson: JSON.stringify({ callJobId: pickupJob.id }),
     },
@@ -97,7 +103,7 @@ await prisma.auditEvent.createMany({
       entityId: refillJob.id,
       action: 'CALL_SEEDED',
       actor: 'seed',
-      message: 'Seeded fake completed refill reminder call.',
+      message: 'Seeded sample completed refill reminder call.',
       metadataJson: JSON.stringify({ callReason: refillJob.callReason }),
     },
     {
@@ -105,7 +111,7 @@ await prisma.auditEvent.createMany({
       entityId: reviewTask.id,
       action: 'TASK_SEEDED',
       actor: 'seed',
-      message: 'Seeded fake follow-up task.',
+      message: 'Seeded sample follow-up task.',
       metadataJson: JSON.stringify({ taskType: reviewTask.taskType }),
     },
   ],

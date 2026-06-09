@@ -397,18 +397,93 @@ export async function fetchTasks(): Promise<StaffTask[]> {
   return request<StaffTask[]>('/tasks')
 }
 
-export interface AnalyticsResponse {
-  totalJobs: number
-  attempted: number
+export interface AnalyticsMetricSet {
+  totalCallJobs: number
+  attemptedCalls: number
+  completedCalls: number
+  answeredCalls: number
+  failedCalls: number
+  noAnswerCalls: number
+  voicemailCalls: number
+  escalatedCalls: number
+  callbackRequestedCalls: number
+  followUpRequiredCalls: number
+  openFollowUpTasks: number
+  overdueFollowUpTasks: number
+  completedFollowUpTasks: number
+  cancelledFollowUpTasks: number
+  averageCallDurationSeconds: number | null
+  averageAiConfidence: number | null
+  successRate: number
+  answerRate: number
+  followUpRate: number
+  escalationRate: number
+}
+
+export interface WorkflowAnalyticsRow {
+  workflow: string
+  callReason: string
+  total: number
   completed: number
-  escalated: number
-  withPatientResponse: number
-  byReason: { reason: string; count: number }[]
-  byStatus: { status: string; count: number }[]
-  series: { date: string; calls: number; completed: number; escalations: number }[]
-  aiVsHuman: { name: string; value: number; fill: string }[]
-  channelMix: { name: string; calls: number }[]
-  completionByReason: { reason: string; total: number; completed: number }[]
+  noAnswer: number
+  failed: number
+  followUpsCreated: number
+  successRate: number
+  averageDurationSeconds: number | null
+}
+
+export interface AnalyticsBucket {
+  key: string
+  count: number
+}
+
+export interface AnalyticsTaskRow {
+  id: string
+  taskType: string
+  priority: string
+  status?: string
+  assignedTeam: string
+  issueSummary: string
+  ageDays?: number
+  dueDate: string | null
+}
+
+export interface AnalyticsTrendPoint {
+  date: string
+  calls: number
+  completed: number
+  failed: number
+  followUps: number
+  tasksCompleted: number
+}
+
+export interface ManagerAttentionItem {
+  id: string
+  severity: 'info' | 'warning' | 'critical'
+  title: string
+  description: string
+  actionLabel: string
+  targetRoute: string
+}
+
+export interface AnalyticsResponse {
+  generatedAt: string
+  range: string
+  workflowFilter: string | null
+  metrics: AnalyticsMetricSet
+  workflowBreakdown: WorkflowAnalyticsRow[]
+  taskMetrics: {
+    tasksByStatus: AnalyticsBucket[]
+    tasksByPriority: AnalyticsBucket[]
+    tasksByType: AnalyticsBucket[]
+    tasksByAssignedTeam: AnalyticsBucket[]
+    urgentTasks: AnalyticsTaskRow[]
+    oldestOpenTasks: AnalyticsTaskRow[]
+    dueTodayTasks: number
+    overdueTasks: number
+  }
+  trend: AnalyticsTrendPoint[]
+  managerAttention: ManagerAttentionItem[]
 }
 
 export interface AuditEventItem {
@@ -431,8 +506,12 @@ export interface AuditResponse {
   }
 }
 
-export async function fetchAnalytics(): Promise<AnalyticsResponse> {
-  return request<AnalyticsResponse>('/analytics')
+export async function fetchAnalytics(params: { range?: string; workflow?: string } = {}): Promise<AnalyticsResponse> {
+  const query = new URLSearchParams()
+  if (params.range) query.set('range', params.range)
+  if (params.workflow) query.set('workflow', params.workflow)
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return request<AnalyticsResponse>(`/analytics${suffix}`)
 }
 
 export async function fetchAuditEvents(): Promise<AuditResponse> {

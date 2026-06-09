@@ -174,12 +174,20 @@ tasksRouter.get('/tasks', async (_req, res) => {
 tasksRouter.post('/tasks', async (req, res) => {
   try {
     const body = req.body as Record<string, unknown>
+    const patientName = String(body.patientName ?? '').trim()
+    const phoneNumber = String(body.phoneNumber ?? '').trim()
+    const taskType = String(body.taskType ?? '').trim()
+    if (!patientName || !phoneNumber || !taskType) {
+      res.status(400).json({ error: 'patientName, phoneNumber, and taskType are required' })
+      return
+    }
+
     const task = await prisma.staffTask.create({
       data: {
-        patientName: String(body.patientName ?? 'Demo Patient'),
-        phoneNumber: String(body.phoneNumber ?? '(***) ***-0000'),
+        patientName,
+        phoneNumber,
         medicationName: body.medicationName != null ? String(body.medicationName) : null,
-        taskType: String(body.taskType ?? 'follow_up'),
+        taskType,
         priority: String(body.priority ?? 'normal'),
         status: String(body.status ?? 'open'),
         notes: body.notes != null ? String(body.notes) : null,

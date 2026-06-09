@@ -24,24 +24,10 @@ import {
 } from '@/utils/api'
 import { isActiveCallStatus } from '@/utils/callStatus'
 
-const LOCAL_JOBS_KEY = 'pharmaflow.callJobs'
-
-function readLocalJobs(): CallJob[] {
-  try {
-    return JSON.parse(window.localStorage.getItem(LOCAL_JOBS_KEY) ?? '[]') as CallJob[]
-  } catch {
-    return []
-  }
-}
-
-function writeLocalJobs(jobs: CallJob[]) {
-  window.localStorage.setItem(LOCAL_JOBS_KEY, JSON.stringify(jobs.slice(0, 100)))
-}
-
-function mergeJobs(serverJobs: CallJob[], localJobs: CallJob[]) {
+function mergeJobs(currentJobs: CallJob[], updatedJobs: CallJob[]) {
   const byId = new Map<string, CallJob>()
-  for (const job of localJobs) byId.set(job.id, job)
-  for (const job of serverJobs) byId.set(job.id, { ...byId.get(job.id), ...job })
+  for (const job of currentJobs) byId.set(job.id, job)
+  for (const job of updatedJobs) byId.set(job.id, { ...byId.get(job.id), ...job })
   return [...byId.values()].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   )
@@ -49,9 +35,7 @@ function mergeJobs(serverJobs: CallJob[], localJobs: CallJob[]) {
 
 export function useCallOperations() {
   const [health, setHealth] = useState<HealthResponse | null>(null)
-  const [jobs, setJobs] = useState<CallJob[]>(() =>
-    typeof window === 'undefined' ? [] : readLocalJobs(),
-  )
+  const [jobs, setJobs] = useState<CallJob[]>([])
   const [tasks, setTasks] = useState<StaffTask[]>([])
   const [batches, setBatches] = useState<UploadBatch[]>([])
   const [doNotCall, setDoNotCall] = useState<DoNotCallEntry[]>([])
@@ -67,13 +51,8 @@ export function useCallOperations() {
         fetchUploadBatches(),
         fetchDoNotCall(),
       ])
-      const mergedJobs = mergeJobs(
-        jobsResult.status === 'fulfilled' ? jobsResult.value : [],
-        readLocalJobs(),
-      )
       setHealth(h)
-      setJobs(mergedJobs)
-      writeLocalJobs(mergedJobs)
+      setJobs(jobsResult.status === 'fulfilled' ? jobsResult.value : [])
       setTasks(tasksResult.status === 'fulfilled' ? tasksResult.value : [])
       setBatches(batchesResult.status === 'fulfilled' ? batchesResult.value : [])
       setDoNotCall(dncResult.status === 'fulfilled' ? dncResult.value : [])
@@ -135,9 +114,7 @@ export function useCallOperations() {
       if (!currentJob) throw new Error('Call job not found in browser state. Refresh and try again.')
       const job = await startCall(currentJob)
       setJobs((prev) => {
-        const next = mergeJobs([job], prev)
-        writeLocalJobs(next)
-        return next
+        return mergeJobs(prev, [job])
       })
       if (job.twilioCallSid?.startsWith('TEST_')) {
         toast.success(`Simulated call completed for ${job.patientName} (no phone ring)`)
@@ -158,9 +135,7 @@ export function useCallOperations() {
     try {
       const job = await createCallJob(input)
       setJobs((prev) => {
-        const next = mergeJobs([job], prev)
-        writeLocalJobs(next)
-        return next
+        return mergeJobs(prev, [job])
       })
       if (job.validationStatus === 'valid') {
         toast.success(`${job.patientName} added to queue`)
@@ -182,9 +157,7 @@ export function useCallOperations() {
       const result = await retryCall(currentJob, { placeImmediately: true })
       const updatedJobs = [result.originalCallJob, result.retryCallJob].filter(Boolean) as CallJob[]
       setJobs((prev) => {
-        const next = mergeJobs(updatedJobs, prev)
-        writeLocalJobs(next)
-        return next
+        return mergeJobs(prev, updatedJobs)
       })
       toast.success(result.existing ? 'A retry is already scheduled for this call.' : 'Retry initiated — watch Live calls below')
       setTimeout(() => setCallingId(null), 5000)
@@ -208,9 +181,7 @@ export function useCallOperations() {
     try {
       const job = await updateCallJob(id, { staffNotes })
       setJobs((prev) => {
-        const next = mergeJobs([job], prev)
-        writeLocalJobs(next)
-        return next
+        return mergeJobs(prev, [job])
       })
       toast.success('Notes saved')
       await refresh(true)
@@ -223,9 +194,7 @@ export function useCallOperations() {
     try {
       const job = await updateCallJob(id, data)
       setJobs((prev) => {
-        const next = mergeJobs([job], prev)
-        writeLocalJobs(next)
-        return next
+        return mergeJobs(prev, [job])
       })
       toast.success('Call job updated')
       await refresh(true)
@@ -242,9 +211,7 @@ export function useCallOperations() {
     try {
       const job = await resolveCallJob(id, { staffNotes, resolvedBy: 'staff' })
       setJobs((prev) => {
-        const next = mergeJobs([job], prev)
-        writeLocalJobs(next)
-        return next
+        return mergeJobs(prev, [job])
       })
       toast.success('Call job marked resolved')
       await refresh(true)

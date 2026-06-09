@@ -13,7 +13,6 @@ import {
   Play,
   RefreshCw,
   Search,
-  Sparkles,
   TrendingUp,
   TriangleAlert,
   UserRoundCheck,
@@ -28,7 +27,6 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn, formatDuration, formatTime } from '@/lib/utils'
-import { CALL_RECORDINGS_MOCK, createDemoCallRecord } from '@/data/callRecordingsMock'
 import type { CallRecordingRecord, CallStatus, FollowUpAction, OutcomeFilter, Sentiment, WorkflowType } from '@/types/callRecordings'
 import { createFollowUpFromCall, fetchCallJobs, fetchHealth, scheduleRetryCall, type CallJob, type ScheduleRetryInput } from '@/utils/api'
 import { mergeRecordingSources } from '@/utils/callJobToRecording'
@@ -100,8 +98,8 @@ function exportBlob(filename: string, payload: unknown) {
 export function CallRecordingDashboard() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const [calls, setCalls] = useState<CallRecordingRecord[]>(CALL_RECORDINGS_MOCK)
-  const [selectedId, setSelectedId] = useState<string>(CALL_RECORDINGS_MOCK[0]?.id ?? '')
+  const [calls, setCalls] = useState<CallRecordingRecord[]>([])
+  const [selectedId, setSelectedId] = useState<string>('')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<'all' | CallStatus>('all')
   const [outcomeFilter, setOutcomeFilter] = useState<OutcomeFilter>('all')
@@ -137,11 +135,11 @@ export function CallRecordingDashboard() {
       setLiveJobsById(byId)
       setLiveJobCount(jobs.length)
       setHealth(h)
-      setCalls(mergeRecordingSources(jobs, CALL_RECORDINGS_MOCK))
+      setCalls(mergeRecordingSources(jobs))
     } catch {
       setErrored(true)
-      setCalls(CALL_RECORDINGS_MOCK)
-      if (!silent) toast.error('Could not load live call jobs — showing demo recordings')
+      setCalls([])
+      if (!silent) toast.error('Could not load call recordings')
     } finally {
       setLoading(false)
     }
@@ -279,12 +277,6 @@ export function CallRecordingDashboard() {
     void loadCalls()
   }
 
-  const generateDemo = () => {
-    const rec = createDemoCallRecord()
-    setCalls((prev) => [rec, ...prev])
-    setSelectedId(rec.id)
-  }
-
   const exportLogs = () => {
     exportBlob('call-recording-logs.json', { generatedAt: new Date().toISOString(), records: filtered })
   }
@@ -311,7 +303,7 @@ export function CallRecordingDashboard() {
       <Card className="border-destructive/30 bg-destructive/5">
         <CardContent className="space-y-3 p-6 text-sm">
           <p className="font-medium">We hit a temporary error loading call recordings.</p>
-          <p className="text-muted-foreground">Please retry. Your demo data is safe in local state.</p>
+          <p className="text-muted-foreground">Please retry after confirming the API and database are available.</p>
           <Button onClick={simulateRefresh}>
             <RefreshCw className="h-4 w-4" />
             Retry
@@ -331,10 +323,6 @@ export function CallRecordingDashboard() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={generateDemo}>
-            <Sparkles className="h-4 w-4" />
-            Generate Demo Call
-          </Button>
           <Button variant="outline" onClick={exportLogs}>
             <Download className="h-4 w-4" />
             Export Logs
@@ -356,9 +344,11 @@ export function CallRecordingDashboard() {
             <Badge variant="success">PHI Protected</Badge>
             <Badge variant="secondary">Access Logged</Badge>
             <Badge variant="secondary">Phone Numbers Masked</Badge>
-            <Badge variant="outline">HIPAA-ready Demo</Badge>
+            <Badge variant="outline">Staff Review</Badge>
           </div>
-          <p className="text-xs text-muted-foreground">Demo data only. Do not use real patient information in this environment.</p>
+          <p className="text-xs text-muted-foreground">
+            Use this area only for authorized pharmacy operations. Avoid exporting or sharing PHI outside approved workflows.
+          </p>
           {liveJobCount > 0 && (
             <Badge variant="success" className="mt-1">
               {liveJobCount} live call job{liveJobCount === 1 ? '' : 's'} from Postgres
@@ -459,8 +449,8 @@ export function CallRecordingDashboard() {
         <Card>
           <CardContent className="space-y-3 p-8 text-center">
             <AlertCircle className="mx-auto h-8 w-8 text-muted-foreground" />
-            <p className="text-sm font-medium">No call recordings found. Try changing filters or generate a demo call.</p>
-            <Button onClick={generateDemo}>Generate Demo Call</Button>
+            <p className="text-sm font-medium">No call recordings found.</p>
+            <p className="text-sm text-muted-foreground">Place outbound calls or change filters to review call outcomes.</p>
           </CardContent>
         </Card>
       ) : (
@@ -879,7 +869,7 @@ export function CallRecordingDashboard() {
               <section className="rounded-md border border-primary/20 bg-primary/5 p-3">
                 <p className="text-xs font-semibold uppercase text-muted-foreground">Compliance Details</p>
                 <p className="mt-1 text-sm">
-                  PHI Protected · Access Logged · Masked identifiers only · Demo data only.
+                  PHI Protected · Access Logged · Masked identifiers only.
                 </p>
                 <div className="mt-2 flex flex-wrap gap-1">
                   {selected.keyTags.map((tag) => (
