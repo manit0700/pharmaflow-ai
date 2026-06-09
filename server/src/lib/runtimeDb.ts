@@ -400,7 +400,9 @@ async function initializePostgresRuntimeDb(): Promise<void> {
 
 export function shouldInitializeRuntimeDb(): boolean {
   const databaseUrl = resolveDatabaseUrl()
-  return process.env.VERCEL === '1' && (databaseUrl.startsWith('file:') || isPostgresDatabaseUrl(databaseUrl))
+  if (!databaseUrl) return false
+  if (databaseUrl.startsWith('file:')) return true
+  return process.env.VERCEL === '1' && isPostgresDatabaseUrl(databaseUrl)
 }
 
 export function ensureRuntimeDb(): Promise<void> {

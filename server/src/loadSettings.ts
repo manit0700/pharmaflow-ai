@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import dotenv from 'dotenv'
-import { normalizeDatabaseEnv } from './lib/databaseUrl.js'
+import { normalizeDatabaseEnv, resolveSqliteDatabaseUrl } from './lib/databaseUrl.js'
 
 export type ConfigSource = 'local.config.json' | 'env'
 
@@ -38,7 +38,9 @@ export function loadSettings(): ConfigSource {
   normalizeDatabaseEnv()
 
   if (!process.env.DATABASE_URL?.trim()) {
-    process.env.DATABASE_URL = 'file:./dev.db'
+    process.env.DATABASE_URL = resolveSqliteDatabaseUrl(serverRoot)
+  } else if (!process.env.VERCEL && process.env.DATABASE_URL.startsWith('file:')) {
+    process.env.DATABASE_URL = resolveSqliteDatabaseUrl(serverRoot, process.env.DATABASE_URL)
   }
 
   return configSource

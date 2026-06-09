@@ -1,3 +1,14 @@
+import path from 'path'
+
+/** Resolve relative SQLite paths to an absolute file URL under serverRoot. */
+export function resolveSqliteDatabaseUrl(serverRoot: string, rawUrl?: string): string {
+  const url = (rawUrl ?? process.env.DATABASE_URL ?? 'file:./dev.db').trim()
+  if (!url.startsWith('file:')) return url
+  const filePath = url.slice('file:'.length)
+  if (path.isAbsolute(filePath)) return url
+  return `file:${path.resolve(serverRoot, filePath)}`
+}
+
 /** Resolve the active database URL from Vercel/Prisma Postgres or standard env. */
 export function resolveDatabaseUrl(): string {
   const candidates = [
