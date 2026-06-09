@@ -2,7 +2,6 @@
  * Dev: default same-origin /api → Vite proxy to 127.0.0.1:4002.
  * Set VITE_API_BASE_URL in .env.local only when you need a direct API host.
  */
-import type { FinalCallOutcome } from '@/utils/callOutcome'
 function getApiBase(): string {
   const raw = import.meta.env.VITE_API_BASE_URL as string | undefined
   const hasExplicit = raw !== undefined && String(raw).trim() !== ''
@@ -18,27 +17,8 @@ function getApiBase(): string {
 
 const BASE = getApiBase()
 
-export interface RetryRecommendation {
-  shouldRetry: boolean
-  recommendedRetryAt: string | null
-  reason: string
-  nextActionLabel: string
-}
-
-export interface RetryHistoryEntry {
-  id: string
-  retryAttempt: number
-  scheduledFor: string | null
-  retryStatus: string
-  callStatus: string
-  finalOutcome: string
-  createdAt: string
-  relatedTaskId: string | null
-}
-
 export interface CallJob {
   id: string
-  uploadBatchId?: string | null
   patientName: string
   phoneNumber: string
   dob: string
@@ -59,101 +39,47 @@ export interface CallJob {
   messagesJson: string | null
   aiConfidence: number | null
   resolutionStatus: string | null
-  resolvedAt?: string | null
-  resolvedBy?: string | null
-  staffNotes?: string | null
-  safetyFlagsJson?: string | null
-  duplicateOfId?: string | null
-  doNotCall?: boolean
   staffFollowUpNeeded: boolean
   followUpReason: string | null
-  createdAt: string
-  finalOutcome?: FinalCallOutcome
-  retryRecommendation?: RetryRecommendation
-  parentCallJobId?: string | null
-  retryOfCallJobId?: string | null
-  retryAttempt?: number
-  maxRetryAttempts?: number
-  scheduledFor?: string | null
-  retryReason?: string | null
-  retryStatus?: string
-  createdFromOutcome?: string | null
-  relatedTaskId?: string | null
-  hasActiveRetry?: boolean
-  activeRetryCallJobId?: string | null
-  scheduledRetryAt?: string | null
-  retryHistory?: RetryHistoryEntry[]
-  callEvents?: CallEvent[]
-  staffTasks?: StaffTask[]
-}
-
-export interface CallEvent {
-  id: string
-  callJobId: string | null
-  twilioCallSid: string | null
-  eventType: string
-  eventPayload: string | null
-  createdAt: string
-}
-
-export interface UploadBatch {
-  id: string
-  filename: string
-  imported: number
-  valid: number
-  invalid: number
-  duplicateCount: number
-  createdAt: string
-}
-
-export interface DoNotCallEntry {
-  id: string
-  phoneNumber: string
-  patientName: string | null
-  reason: string | null
-  createdBy: string | null
   createdAt: string
 }
 
 export interface StaffTask {
   id: string
   callJobId?: string | null
+  callJob?: {
+    id: string
+    callReason?: string | null
+    callStatus?: string | null
+    callAttemptedAt?: string | null
+    callCompletedAt?: string | null
+    patientResponse?: string | null
+    followUpReason?: string | null
+  } | null
   patientName: string
   phoneNumber: string
   medicationName?: string | null
   taskType: string
   priority: string
   status: string
-  notes: string | null
-  aiSummary?: string | null
+  sourceWorkflow?: string | null
   assignedTeam?: string | null
   dueDate?: string | null
   dueTime?: string | null
-  sourceWorkflow?: string | null
   issueSummary?: string | null
   activityJson?: string | null
-  completedAt?: string | null
-  createdAt: string
-  updatedAt?: string
+  aiSummary?: string | null
   taskActivities?: TaskActivity[]
-  callJob?: {
-    id: string
-    callReason: string
-    callStatus?: string
-    patientResponse: string | null
-    callCompletedAt: string | null
-    callAttemptedAt: string | null
-    followUpReason: string | null
-  } | null
+  notes: string | null
+  createdAt: string
+  updatedAt?: string | null
 }
 
 export interface TaskActivity {
   id: string
-  taskId: string
   activityType: string
   message: string
   actor: string
-  metadataJson: string | null
   createdAt: string
 }
 
@@ -181,13 +107,6 @@ export interface HealthResponse {
     ready: boolean
     issues: string[]
     publicBaseUrl: string
-  }
-  database?: {
-    provider: 'sqlite' | 'postgres' | 'unknown' | 'missing'
-    durable: boolean
-    connected?: boolean
-    warning: string | null
-    error?: string | null
   }
 }
 
@@ -246,14 +165,6 @@ export async function fetchCallJobs(): Promise<CallJob[]> {
   return request<CallJob[]>('/call-jobs')
 }
 
-export async function fetchUploadBatches(): Promise<UploadBatch[]> {
-  return request<UploadBatch[]>('/upload-batches')
-}
-
-export async function fetchDoNotCall(): Promise<DoNotCallEntry[]> {
-  return request<DoNotCallEntry[]>('/do-not-call')
-}
-
 export interface CreateCallJobInput {
   patientName: string
   phoneNumber: string
@@ -286,90 +197,11 @@ export async function startCall(job: CallJob): Promise<CallJob> {
   })
 }
 
-export type ScheduleRetryInput = {
-  scheduledFor?: string
-  reason?: string
-  placeImmediately?: boolean
-  createFollowUpTask?: boolean
-}
-
-export type ScheduleRetryResponse = {
-  ok: boolean
-  existing: boolean
-  originalCallJob: CallJob
-  retryCallJob: CallJob | null
-  retryRecommendation: RetryRecommendation
-  followUpTask?: StaffTask
-}
-
-export async function scheduleRetryCall(
-  callJobId: string,
-  input: ScheduleRetryInput = {},
-): Promise<ScheduleRetryResponse> {
-  return request<ScheduleRetryResponse>(`/call-jobs/${callJobId}/retry`, {
+export async function retryCall(job: CallJob): Promise<CallJob> {
+  return request<CallJob>(`/call-jobs/${job.id}/retry`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-}
-
-export async function retryCall(job: CallJob, input: ScheduleRetryInput = {}): Promise<ScheduleRetryResponse> {
-  return scheduleRetryCall(job.id, { placeImmediately: true, ...input })
-}
-
-export async function createFollowUpFromCall(
-  callJobId: string,
-): Promise<{ task: StaffTask; created: boolean }> {
-  return request<{ task: StaffTask; created: boolean }>(`/call-jobs/${callJobId}/follow-up-task`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  })
-}
-
-export async function fetchCallScript(jobId: string): Promise<{ callJobId: string; mode: string; script: string }> {
-  return request<{ callJobId: string; mode: string; script: string }>(`/call-jobs/${jobId}/script`)
-}
-
-export type UpdateCallJobInput = {
-  job?: CallJob
-  notes?: string | null
-  staffNotes?: string | null
-  staffFollowUpNeeded?: boolean
-  followUpReason?: string | null
-  callStatus?: string
-  resolutionStatus?: string | null
-  resolvedBy?: string
-}
-
-export async function updateCallJob(id: string, data: UpdateCallJobInput): Promise<CallJob> {
-  return request<CallJob>(`/call-jobs/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(data),
-  })
-}
-
-export async function resolveCallJob(
-  id: string,
-  data: { staffNotes?: string; resolvedBy?: string } = {},
-): Promise<CallJob> {
-  return request<CallJob>(`/call-jobs/${id}/resolve`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-}
-
-export async function addDoNotCall(data: {
-  phoneNumber: string
-  patientName?: string
-  reason?: string
-}): Promise<DoNotCallEntry> {
-  return request<DoNotCallEntry>('/do-not-call', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ job }),
   })
 }
 
@@ -397,93 +229,18 @@ export async function fetchTasks(): Promise<StaffTask[]> {
   return request<StaffTask[]>('/tasks')
 }
 
-export interface AnalyticsMetricSet {
-  totalCallJobs: number
-  attemptedCalls: number
-  completedCalls: number
-  answeredCalls: number
-  failedCalls: number
-  noAnswerCalls: number
-  voicemailCalls: number
-  escalatedCalls: number
-  callbackRequestedCalls: number
-  followUpRequiredCalls: number
-  openFollowUpTasks: number
-  overdueFollowUpTasks: number
-  completedFollowUpTasks: number
-  cancelledFollowUpTasks: number
-  averageCallDurationSeconds: number | null
-  averageAiConfidence: number | null
-  successRate: number
-  answerRate: number
-  followUpRate: number
-  escalationRate: number
-}
-
-export interface WorkflowAnalyticsRow {
-  workflow: string
-  callReason: string
-  total: number
-  completed: number
-  noAnswer: number
-  failed: number
-  followUpsCreated: number
-  successRate: number
-  averageDurationSeconds: number | null
-}
-
-export interface AnalyticsBucket {
-  key: string
-  count: number
-}
-
-export interface AnalyticsTaskRow {
-  id: string
-  taskType: string
-  priority: string
-  status?: string
-  assignedTeam: string
-  issueSummary: string
-  ageDays?: number
-  dueDate: string | null
-}
-
-export interface AnalyticsTrendPoint {
-  date: string
-  calls: number
-  completed: number
-  failed: number
-  followUps: number
-  tasksCompleted: number
-}
-
-export interface ManagerAttentionItem {
-  id: string
-  severity: 'info' | 'warning' | 'critical'
-  title: string
-  description: string
-  actionLabel: string
-  targetRoute: string
-}
-
 export interface AnalyticsResponse {
-  generatedAt: string
-  range: string
-  workflowFilter: string | null
-  metrics: AnalyticsMetricSet
-  workflowBreakdown: WorkflowAnalyticsRow[]
-  taskMetrics: {
-    tasksByStatus: AnalyticsBucket[]
-    tasksByPriority: AnalyticsBucket[]
-    tasksByType: AnalyticsBucket[]
-    tasksByAssignedTeam: AnalyticsBucket[]
-    urgentTasks: AnalyticsTaskRow[]
-    oldestOpenTasks: AnalyticsTaskRow[]
-    dueTodayTasks: number
-    overdueTasks: number
-  }
-  trend: AnalyticsTrendPoint[]
-  managerAttention: ManagerAttentionItem[]
+  totalJobs: number
+  attempted: number
+  completed: number
+  escalated: number
+  withPatientResponse: number
+  byReason: { reason: string; count: number }[]
+  byStatus: { status: string; count: number }[]
+  series: { date: string; calls: number; completed: number; escalations: number }[]
+  aiVsHuman: { name: string; value: number; fill: string }[]
+  channelMix: { name: string; calls: number }[]
+  completionByReason: { reason: string; total: number; completed: number }[]
 }
 
 export interface AuditEventItem {
@@ -506,60 +263,20 @@ export interface AuditResponse {
   }
 }
 
-export async function fetchAnalytics(params: { range?: string; workflow?: string } = {}): Promise<AnalyticsResponse> {
-  const query = new URLSearchParams()
-  if (params.range) query.set('range', params.range)
-  if (params.workflow) query.set('workflow', params.workflow)
-  const suffix = query.toString() ? `?${query.toString()}` : ''
-  return request<AnalyticsResponse>(`/analytics${suffix}`)
+export async function fetchAnalytics(): Promise<AnalyticsResponse> {
+  return request<AnalyticsResponse>('/analytics')
 }
 
 export async function fetchAuditEvents(): Promise<AuditResponse> {
   return request<AuditResponse>('/audit-events')
 }
 
-export type TaskUpdateInput = {
-  status?: string
-  notes?: string
-  appendNote?: string
-  priority?: string
-  assignedTeam?: string
-  dueDate?: string
-  dueTime?: string
-  sourceWorkflow?: string
-  issueSummary?: string
-  activityJson?: string
-  aiSummary?: string
-}
-
-export async function updateTask(id: string, data: TaskUpdateInput): Promise<StaffTask> {
+export async function updateTask(
+  id: string,
+  data: { status?: string; notes?: string },
+): Promise<StaffTask> {
   return request<StaffTask>(`/tasks/${id}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
-}
-
-export async function createStaffTask(
-  data: {
-    patientName: string
-    phoneNumber: string
-    taskType: string
-    priority?: string
-    status?: string
-    notes?: string | null
-    aiSummary?: string | null
-    callJobId?: string | null
-    assignedTeam?: string
-    dueDate?: string | null
-    dueTime?: string
-    sourceWorkflow?: string | null
-    issueSummary?: string | null
-    activityJson?: string | null
-  },
-): Promise<StaffTask> {
-  return request<StaffTask>('/tasks', {
-    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
