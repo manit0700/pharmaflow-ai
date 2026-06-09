@@ -68,7 +68,7 @@ export function callJobToRecording(job: CallJob): CallRecordingRecord {
     status: mapRecordingStatus(job.callStatus),
     startedAt,
     durationSec: job.callDuration ?? 0,
-    aiConfidence: job.aiConfidence ?? null,
+    aiConfidence: job.aiConfidence ?? 0,
     sentiment: sentimentFromOutcome(outcome),
     followUpNeeded: Boolean(job.staffFollowUpNeeded || openTask),
     reviewed:

@@ -39,6 +39,14 @@ export interface CallJob {
   messagesJson: string | null
   aiConfidence: number | null
   resolutionStatus: string | null
+  retryStatus?: string | null
+  retryRecommendation?: {
+    shouldRetry: boolean
+    recommendedRetryAt: string | null
+    reason: string
+    nextActionLabel: string
+  } | null
+  staffTasks?: StaffTask[]
   staffFollowUpNeeded: boolean
   followUpReason: string | null
   createdAt: string
@@ -103,11 +111,19 @@ export interface HealthResponse {
   testMode: boolean
   publicBaseUrl?: string
   port?: number
+  database?: { connected: boolean; provider: string } | null
   liveCallReadiness?: {
     ready: boolean
     issues: string[]
     publicBaseUrl: string
   }
+}
+
+export interface ScheduleRetryInput {
+  scheduledFor?: string
+  reason?: string
+  createFollowUpTask?: boolean
+  placeImmediately?: boolean
 }
 
 function apiUrl(path: string) {
@@ -229,6 +245,30 @@ export async function fetchTasks(): Promise<StaffTask[]> {
   return request<StaffTask[]>('/tasks')
 }
 
+export type TaskUpdateInput = {
+  status?: string
+  notes?: string
+  appendNote?: string
+  priority?: string
+  assignedTeam?: string
+  dueDate?: string
+  dueTime?: string
+  sourceWorkflow?: string
+  issueSummary?: string
+  aiSummary?: string
+  activityJson?: string
+}
+
+export async function createStaffTask(
+  data: Record<string, string | null | undefined>,
+): Promise<StaffTask> {
+  return request<StaffTask>('/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+}
+
 export interface AnalyticsResponse {
   totalJobs: number
   attempted: number
@@ -273,7 +313,7 @@ export async function fetchAuditEvents(): Promise<AuditResponse> {
 
 export async function updateTask(
   id: string,
-  data: { status?: string; notes?: string },
+  data: TaskUpdateInput,
 ): Promise<StaffTask> {
   return request<StaffTask>(`/tasks/${id}`, {
     method: 'PATCH',
