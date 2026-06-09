@@ -150,7 +150,6 @@ export async function startOutboundCall(params: {
       statusCallback: `${config.publicBaseUrl}/api/twilio/status`,
       statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
       statusCallbackMethod: 'POST',
-      machineDetection: 'Enable',
     })
     return { sid: call.sid, status: call.status }
   } catch (err) {
