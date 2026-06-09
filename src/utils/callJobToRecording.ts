@@ -68,10 +68,13 @@ export function callJobToRecording(job: CallJob): CallRecordingRecord {
     status: mapRecordingStatus(job.callStatus),
     startedAt,
     durationSec: job.callDuration ?? 0,
-    aiConfidence: job.aiConfidence ?? (job.callStatus === 'completed' ? 88 : 72),
+    aiConfidence: job.aiConfidence ?? null,
     sentiment: sentimentFromOutcome(outcome),
     followUpNeeded: Boolean(job.staffFollowUpNeeded || openTask),
-    reviewed: job.callStatus === 'resolved' || job.resolutionStatus === 'resolved',
+    reviewed:
+      job.callStatus === 'resolved' ||
+      job.resolutionStatus === 'resolved' ||
+      job.resolutionStatus === 'reviewed',
     outcome,
     summary: job.aiSummary ?? job.patientResponse ?? job.followUpReason ?? retry.reason,
     recommendation: retry.nextActionLabel,
@@ -93,7 +96,18 @@ export function callJobToRecording(job: CallJob): CallRecordingRecord {
 }
 
 export function mergeRecordingSources(liveJobs: CallJob[]): CallRecordingRecord[] {
-  return liveJobs.map(callJobToRecording).sort(
-    (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
-  )
+  return liveJobs
+    .filter(
+      (job) =>
+        Boolean(
+          job.callAttemptedAt ||
+            job.callCompletedAt ||
+            job.twilioCallSid ||
+            ['completed', 'resolved', 'escalated', 'voicemail', 'no_answer', 'failed', 'callback_requested'].includes(
+              job.callStatus,
+            ),
+        ),
+    )
+    .map(callJobToRecording)
+    .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
 }

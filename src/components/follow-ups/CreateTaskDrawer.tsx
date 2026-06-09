@@ -15,7 +15,7 @@ interface CreateTaskDrawerProps {
 
 export function CreateTaskDrawer({ open, onClose, onSave }: CreateTaskDrawerProps) {
   const [patientMasked, setPatientMasked] = useState('')
-  const [phoneMasked, setPhoneMasked] = useState('(***) ***-0000')
+  const [phoneMasked, setPhoneMasked] = useState('')
   const [taskType, setTaskType] = useState<CreateTaskInput['taskType']>('Callback')
   const [priority, setPriority] = useState<CreateTaskInput['priority']>('Medium')
   const [assignedTeam, setAssignedTeam] = useState<CreateTaskInput['assignedTeam']>('Unassigned')
@@ -27,10 +27,10 @@ export function CreateTaskDrawer({ open, onClose, onSave }: CreateTaskDrawerProp
   if (!open) return null
 
   const handleSave = () => {
-    if (!patientMasked.trim() || !issueSummary.trim()) return
+    if (!patientMasked.trim() || !phoneMasked.trim() || !issueSummary.trim()) return
     onSave({
       patientMasked: patientMasked.trim(),
-      phoneMasked: phoneMasked.trim() || '(***) ***-0000',
+      phoneMasked: phoneMasked.trim(),
       taskType,
       priority,
       assignedTeam,
@@ -40,6 +40,7 @@ export function CreateTaskDrawer({ open, onClose, onSave }: CreateTaskDrawerProp
       notes: notes.trim() || undefined,
     })
     setPatientMasked('')
+    setPhoneMasked('')
     setIssueSummary('')
     setNotes('')
     onClose()
@@ -100,7 +101,12 @@ export function CreateTaskDrawer({ open, onClose, onSave }: CreateTaskDrawerProp
         </Field>
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSave} disabled={!patientMasked.trim() || !issueSummary.trim()}>Save Task</Button>
+          <Button
+            onClick={handleSave}
+            disabled={!patientMasked.trim() || !phoneMasked.trim() || !issueSummary.trim()}
+          >
+            Save Task
+          </Button>
         </div>
       </div>
     </DrawerShell>

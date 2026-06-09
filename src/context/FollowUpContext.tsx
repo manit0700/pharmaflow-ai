@@ -144,7 +144,6 @@ export function FollowUpProvider({ children }: { children: ReactNode }) {
           sourceWorkflow: payload.sourceWorkflow as string,
           issueSummary: payload.issueSummary as string,
           aiSummary: payload.aiSummary as string,
-          activityJson: payload.activityJson as string,
           notes: payload.notes as string,
         })
         const mapped = staffTaskToFollowUp(created)

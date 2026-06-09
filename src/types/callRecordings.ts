@@ -48,7 +48,7 @@ export interface CallRecordingRecord {
   status: CallStatus
   startedAt: string
   durationSec: number
-  aiConfidence: number
+  aiConfidence: number | null
   sentiment: Sentiment
   followUpNeeded: boolean
   reviewed: boolean

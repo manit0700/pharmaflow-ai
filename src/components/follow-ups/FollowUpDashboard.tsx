@@ -81,9 +81,9 @@ export function FollowUpDashboard() {
   const handleCreateTask = async (input: CreateTaskInput) => {
     const task = createTaskFromInput(input)
     const created = await addTask(task)
-    const id = created?.id ?? task.id
-    setSelectedId(id)
-    setSearchParams({ task: id })
+    if (!created?.id) return
+    setSelectedId(created.id)
+    setSearchParams({ task: created.id })
     toast.success('Follow-up task created')
   }
 

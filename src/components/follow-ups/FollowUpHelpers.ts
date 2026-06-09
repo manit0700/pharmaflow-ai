@@ -8,6 +8,7 @@ import type {
   FollowUpTask,
   FollowUpTaskType,
   SortOption,
+  SourceWorkflow,
 } from '@/types/followUps'
 
 export type { FollowUpStatus }
@@ -222,33 +223,33 @@ export function createActivity(
   }
 }
 
+function sourceWorkflowForTaskType(taskType: FollowUpTaskType): SourceWorkflow {
+  if (taskType === 'Insurance Issue') return 'Insurance Issue'
+  if (taskType === 'Prior Authorization') return 'PA Follow-up'
+  if (taskType === 'Delivery Issue') return 'Delivery Confirmation'
+  if (taskType === 'Refill Request') return 'Refill Reminder'
+  return 'Medication Adherence'
+}
+
 export function createTaskFromInput(input: CreateTaskInput): FollowUpTask {
   const now = new Date().toISOString()
-  const activity: FollowUpActivity[] = [
-    createActivity('created', 'Follow-up task created manually.', 'Staff'),
-  ]
-  if (input.notes?.trim()) {
-    activity.push(createActivity('note', input.notes.trim(), 'Staff'))
-  }
-  if (input.assignedTeam !== 'Unassigned') {
-    activity.push(createActivity('assigned', `Assigned to ${input.assignedTeam}.`, 'Staff'))
-  }
 
   return {
-    id: `fu-${Date.now()}`,
+    id: '',
     patientName: input.patientMasked,
     patientMasked: input.patientMasked,
     phoneMasked: input.phoneMasked,
     taskType: input.taskType,
     priority: input.priority,
     status: 'Open',
-    sourceWorkflow: 'Refill Reminder',
+    sourceWorkflow: sourceWorkflowForTaskType(input.taskType),
     dueDate: input.dueDate,
     dueTime: input.dueTime,
     assignedTeam: input.assignedTeam,
     issueSummary: input.issueSummary,
+    staffNotes: input.notes?.trim() || undefined,
     aiRecommendedAction: 'Review task details and take appropriate follow-up action.',
-    activity,
+    activity: [],
     lastActivityAt: now,
     createdAt: now,
     updatedAt: now,

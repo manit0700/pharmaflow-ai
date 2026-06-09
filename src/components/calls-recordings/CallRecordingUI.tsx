@@ -28,7 +28,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn, formatDuration, formatTime } from '@/lib/utils'
 import type { CallRecordingRecord, CallStatus, FollowUpAction, OutcomeFilter, Sentiment, WorkflowType } from '@/types/callRecordings'
-import { createFollowUpFromCall, fetchCallJobs, fetchHealth, scheduleRetryCall, type CallJob, type ScheduleRetryInput } from '@/utils/api'
+import {
+  createFollowUpFromCall,
+  createStaffTask,
+  fetchCallJobs,
+  fetchHealth,
+  resolveCallJob,
+  scheduleRetryCall,
+  updateCallJob,
+  updateTask,
+  type CallJob,
+  type ScheduleRetryInput,
+  type StaffTask,
+} from '@/utils/api'
 import { mergeRecordingSources } from '@/utils/callJobToRecording'
 import { outcomeBadgeVariant, type FinalCallOutcome } from '@/utils/callOutcome'
 import { RetryScheduleModal } from './RetryScheduleModal'
@@ -175,40 +187,97 @@ export function CallRecordingDashboard() {
     })
   }, [calls])
 
-  const updateCall = (id: string, patch: Partial<CallRecordingRecord>) => {
-    setCalls((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
+  const ensureFollowUpTask = useCallback(async (job: CallJob): Promise<StaffTask> => {
+    const existing = job.staffTasks?.find((task) => task.status !== 'completed' && task.status !== 'cancelled')
+    if (existing) return existing
+    const result = await createFollowUpFromCall(job.id)
+    return result.task
+  }, [])
+
+  const markCallReviewed = async (call: CallRecordingRecord) => {
+    const job = liveJobsById[call.id]
+    if (!job) {
+      toast.error('This call is not saved in the database yet.')
+      return
+    }
+    setActionBusy(call.id)
+    try {
+      await updateCallJob(call.id, {
+        resolutionStatus: 'reviewed',
+        staffNotes: 'Call recording reviewed by pharmacy staff.',
+      })
+      await loadCalls(true)
+      toast.success('Call marked reviewed')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not mark call reviewed')
+    } finally {
+      setActionBusy(null)
+    }
   }
 
-  const applyFollowup = (action: FollowUpAction) => {
+  const applyFollowup = async (action: FollowUpAction) => {
     if (!selected || !action) return
-    if (action === 'mark_reviewed') return updateCall(selected.id, { reviewed: true })
-    if (action === 'assign_pharmacist') {
-      return updateCall(selected.id, {
-        followUpNeeded: true,
-        reviewed: false,
-        recommendation: 'Assigned to pharmacist for callback.',
-      })
+    const job = liveJobsById[selected.id]
+    if (!job) {
+      toast.error('This call is not saved in the database yet.')
+      return
     }
-    if (action === 'call_back_later') {
-      return updateCall(selected.id, {
-        followUpNeeded: true,
-        reviewed: false,
-        recommendation: 'Call Back Later scheduled for next shift.',
-      })
-    }
-    if (action === 'create_pa_task') {
-      return updateCall(selected.id, {
-        followUpNeeded: true,
-        reviewed: false,
-        recommendation: 'PA Task created for insurance processing queue.',
-      })
-    }
-    if (action === 'mark_resolved') {
-      return updateCall(selected.id, {
-        followUpNeeded: false,
-        reviewed: true,
-        status: selected.status === 'escalated' ? 'completed' : selected.status,
-      })
+
+    setActionBusy(selected.id)
+    try {
+      if (action === 'mark_reviewed') {
+        await updateCallJob(selected.id, {
+          resolutionStatus: 'reviewed',
+          staffNotes: 'Call recording reviewed by pharmacy staff.',
+        })
+        toast.success('Call marked reviewed')
+      } else if (action === 'mark_resolved') {
+        await resolveCallJob(selected.id, { staffNotes: 'Resolved by pharmacy staff from call recording.' })
+        toast.success('Call marked resolved')
+      } else if (action === 'assign_pharmacist') {
+        const task = await ensureFollowUpTask(job)
+        await updateTask(task.id, {
+          assignedTeam: 'Pharmacist',
+          appendNote: 'Assigned to pharmacist from call recording.',
+        })
+        toast.success('Assigned to pharmacist')
+      } else if (action === 'call_back_later') {
+        const task = await ensureFollowUpTask(job)
+        const tomorrow = new Date()
+        tomorrow.setDate(tomorrow.getDate() + 1)
+        await updateTask(task.id, {
+          appendNote: 'Patient requested callback later.',
+          dueDate: tomorrow.toISOString().slice(0, 10),
+          dueTime: '14:00',
+        })
+        toast.success('Callback scheduled for tomorrow')
+      } else if (action === 'create_pa_task') {
+        const existingPa = job.staffTasks?.find(
+          (task) => task.taskType === 'prior_auth' && task.status !== 'completed' && task.status !== 'cancelled',
+        )
+        if (existingPa) {
+          navigate(`/follow-ups?task=${existingPa.id}`)
+          toast.message('Existing PA task linked')
+        } else {
+          const created = await createStaffTask({
+            patientName: job.patientName,
+            phoneNumber: job.phoneNumber,
+            taskType: 'prior_auth',
+            callJobId: job.id,
+            priority: 'high',
+            assignedTeam: 'Billing Team',
+            issueSummary: 'Prior authorization follow-up from call recording.',
+            sourceWorkflow: 'PA Follow-up',
+          })
+          navigate(`/follow-ups?task=${created.id}`)
+          toast.success('PA task created')
+        }
+      }
+      await loadCalls(true)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save call action')
+    } finally {
+      setActionBusy(null)
     }
   }
 
@@ -529,7 +598,7 @@ export function CallRecordingDashboard() {
                         </td>
                         <td className="px-3 py-2">{formatTime(call.startedAt)}</td>
                         <td className="px-3 py-2">{formatDuration(call.durationSec)}</td>
-                        <td className="px-3 py-2">{call.aiConfidence}%</td>
+                        <td className="px-3 py-2">{call.aiConfidence != null ? `${call.aiConfidence}%` : '—'}</td>
                         <td className="px-3 py-2">
                           <div className="flex flex-wrap gap-1">
                             <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setSelectedId(call.id); setPlaying(true) }}>
@@ -540,7 +609,15 @@ export function CallRecordingDashboard() {
                               <FileText className="h-3 w-3" />
                               Transcript
                             </Button>
-                            <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); updateCall(call.id, { reviewed: true }) }}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={actionBusy === call.id}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void markCallReviewed(call)
+                              }}
+                            >
                               <UserRoundCheck className="h-3 w-3" />
                               Reviewed
                             </Button>
@@ -635,7 +712,9 @@ export function CallRecordingDashboard() {
                       </Badge>
                       <Badge variant="outline">{formatDuration(selected.durationSec)}</Badge>
                       <Badge variant={sentimentVariant(selected.sentiment)}>{selected.sentiment}</Badge>
-                      <Badge variant="secondary">AI Confidence {selected.aiConfidence}%</Badge>
+                      {selected.aiConfidence != null && (
+                        <Badge variant="secondary">AI Confidence {selected.aiConfidence}%</Badge>
+                      )}
                       {selected.finalOutcome && (
                         <Badge variant={outcomeBadgeVariant(selected.finalOutcome as FinalCallOutcome)}>
                           {selected.finalOutcome}
@@ -659,7 +738,7 @@ export function CallRecordingDashboard() {
                   {(selected.liveSource === 'api' || selected.followUpNeeded || selected.retryRecommendation?.shouldRetry) && (
                     <Card className="border-primary/20 bg-primary/5">
                       <CardHeader className="pb-2">
-                        <CardTitle className="text-sm">Live call actions</CardTitle>
+                        <CardTitle className="text-sm">Call actions</CardTitle>
                         <CardDescription>Retry or create a follow-up task from this call outcome</CardDescription>
                       </CardHeader>
                       <CardContent className="flex flex-wrap gap-2">
@@ -794,19 +873,44 @@ export function CallRecordingDashboard() {
                           <ExternalLink className="h-3.5 w-3.5" />
                           Open Follow-Up
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => applyFollowup('mark_reviewed')}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={actionBusy === selected.id}
+                          onClick={() => void applyFollowup('mark_reviewed')}
+                        >
                           Mark Reviewed
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => applyFollowup('assign_pharmacist')}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={actionBusy === selected.id}
+                          onClick={() => void applyFollowup('assign_pharmacist')}
+                        >
                           Assign to Pharmacist
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => applyFollowup('call_back_later')}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={actionBusy === selected.id}
+                          onClick={() => void applyFollowup('call_back_later')}
+                        >
                           Call Back Later
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => applyFollowup('create_pa_task')}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={actionBusy === selected.id}
+                          onClick={() => void applyFollowup('create_pa_task')}
+                        >
                           Create PA Task
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => applyFollowup('mark_resolved')}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={actionBusy === selected.id}
+                          onClick={() => void applyFollowup('mark_resolved')}
+                        >
                           Mark Resolved
                         </Button>
                       </CardContent>
