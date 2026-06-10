@@ -1,11 +1,9 @@
-import { useState } from 'react'
-import { Ban, CheckCircle2, FileText, Save, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Textarea } from '@/components/ui/textarea'
 import type { CallJob } from '@/utils/api'
-import { getFinalOutcome, getRetryRecommendation, outcomeBadgeVariant, type FinalCallOutcome } from '@/utils/callOutcome'
+import { buildLiveFeed } from '@/utils/liveTranscript'
 import { cn } from '@/lib/utils'
 
 type ChatMessage = { role: string; content: string }
@@ -30,33 +28,19 @@ function formatRole(role: string) {
 export function CallJobDetailPanel({
   job,
   onClose,
-  onPreviewScript,
-  onSaveNotes,
-  onResolve,
-  onAddDoNotCall,
 }: {
   job: CallJob
   onClose: () => void
-  onPreviewScript?: (id: string) => Promise<{ script: string }>
-  onSaveNotes?: (id: string, staffNotes: string) => void
-  onResolve?: (id: string, staffNotes?: string) => void
-  onAddDoNotCall?: (job: CallJob) => void
 }) {
   const messages = parseMessages(job.messagesJson)
-  const [staffNotes, setStaffNotes] = useState(job.staffNotes ?? '')
-  const [script, setScript] = useState<string | null>(null)
-  const safetyFlags = (() => {
-    if (!job.safetyFlagsJson) return [] as string[]
-    try {
-      const parsed = JSON.parse(job.safetyFlagsJson) as unknown
-      return Array.isArray(parsed) ? parsed.map(String) : []
-    } catch {
-      return []
-    }
-  })()
-  const finalOutcome: FinalCallOutcome =
-    (job.finalOutcome as FinalCallOutcome | undefined) ?? getFinalOutcome(job)
-  const retryRecommendation = job.retryRecommendation ?? getRetryRecommendation(job)
+  const liveFeed = buildLiveFeed(job)
+  const conversationItems =
+    liveFeed.length > 0
+      ? liveFeed.map((item) => ({
+          role: item.speaker === 'pharmacy' ? 'assistant' : item.speaker,
+          content: item.text,
+        }))
+      : messages.filter((m) => m.role !== 'system')
 
   return (
     <Card className="border-primary/30">
@@ -82,12 +66,6 @@ export function CallJobDetailPanel({
             <dd className="capitalize">{job.callStatus.replace(/_/g, ' ')}</dd>
           </div>
           <div>
-            <dt className="text-xs text-muted-foreground">Final outcome</dt>
-            <dd>
-              <Badge variant={outcomeBadgeVariant(finalOutcome)}>{finalOutcome}</Badge>
-            </dd>
-          </div>
-          <div>
             <dt className="text-xs text-muted-foreground">DOB</dt>
             <dd>{job.dob}</dd>
           </div>
@@ -99,61 +77,7 @@ export function CallJobDetailPanel({
               </Badge>
             </dd>
           </div>
-          {job.resolvedAt && (
-            <div>
-              <dt className="text-xs text-muted-foreground">Resolved</dt>
-              <dd>{new Date(job.resolvedAt).toLocaleString()}</dd>
-            </div>
-          )}
         </dl>
-
-        <div className="flex flex-wrap gap-2">
-          {onPreviewScript && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={async () => {
-                const result = await onPreviewScript(job.id)
-                setScript(result.script)
-              }}
-            >
-              <FileText className="h-3.5 w-3.5" />
-              Preview script
-            </Button>
-          )}
-          {onResolve && (
-            <Button size="sm" variant="outline" onClick={() => onResolve(job.id, staffNotes)}>
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              Mark resolved
-            </Button>
-          )}
-          {onAddDoNotCall && (
-            <Button size="sm" variant="outline" onClick={() => onAddDoNotCall(job)}>
-              <Ban className="h-3.5 w-3.5" />
-              Do not call
-            </Button>
-          )}
-        </div>
-
-        {safetyFlags.length > 0 && (
-          <div className="rounded-md border border-warning/40 bg-warning/5 p-3">
-            <p className="text-xs font-medium text-warning">Safety flags</p>
-            <ul className="mt-1 list-disc pl-4 text-xs text-muted-foreground">
-              {safetyFlags.map((flag) => (
-                <li key={flag}>{flag}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {script && (
-          <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Script preview</p>
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
-              {script}
-            </pre>
-          </div>
-        )}
 
         {(job.patientResponse || job.aiSummary) && (
           <div className="rounded-md border border-border/60 bg-muted/40 p-3 space-y-2">
@@ -177,38 +101,6 @@ export function CallJobDetailPanel({
           </div>
         )}
 
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">Staff notes</p>
-          <Textarea
-            value={staffNotes}
-            onChange={(e) => setStaffNotes(e.target.value)}
-            placeholder="Add internal staff notes..."
-            rows={3}
-          />
-          {onSaveNotes && (
-            <Button size="sm" variant="outline" onClick={() => onSaveNotes(job.id, staffNotes)}>
-              <Save className="h-3.5 w-3.5" />
-              Save notes
-            </Button>
-          )}
-        </div>
-
-        {retryRecommendation && (
-          <div className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs font-medium text-muted-foreground">Retry recommendation</p>
-              {retryRecommendation.shouldRetry && <Badge variant="warning">Retry recommended</Badge>}
-            </div>
-            <p className="text-sm">{retryRecommendation.reason}</p>
-            <p className="text-xs text-muted-foreground">{retryRecommendation.nextActionLabel}</p>
-            {retryRecommendation.recommendedRetryAt && (
-              <p className="text-xs text-muted-foreground">
-                Suggested: {new Date(retryRecommendation.recommendedRetryAt).toLocaleString()}
-              </p>
-            )}
-          </div>
-        )}
-
         {job.errorMessage && (
           <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-destructive">
             {job.errorMessage}
@@ -222,13 +114,11 @@ export function CallJobDetailPanel({
           </div>
         )}
 
-        {messages.length > 0 && (
+        {conversationItems.length > 0 && (
           <div>
             <p className="mb-2 text-xs font-medium text-muted-foreground">Call conversation</p>
             <div className="max-h-64 space-y-2 overflow-auto rounded-md border border-border/60 p-2">
-              {messages
-                .filter((m) => m.role !== 'system')
-                .map((m, i) => (
+              {conversationItems.map((m, i) => (
                   <div
                     key={`${m.role}-${i}`}
                     className={cn(
@@ -249,62 +139,6 @@ export function CallJobDetailPanel({
 
         {job.twilioCallSid && (
           <p className="text-xs text-muted-foreground font-mono">Twilio SID: {job.twilioCallSid}</p>
-        )}
-
-        {(job.retryOfCallJobId || job.parentCallJobId) && (
-          <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs space-y-1">
-            {job.retryOfCallJobId && (
-              <p>
-                Retry of call <span className="font-mono">{job.retryOfCallJobId.slice(0, 8)}…</span>
-              </p>
-            )}
-            {job.scheduledFor && (
-              <p>Retry scheduled for {new Date(job.scheduledFor).toLocaleString()}</p>
-            )}
-            {job.retryStatus && <p>Retry status: {job.retryStatus.replace(/_/g, ' ')}</p>}
-          </div>
-        )}
-
-        {job.retryHistory && job.retryHistory.length > 0 && (
-          <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Retry history</p>
-            <div className="max-h-48 overflow-auto rounded-md border border-border/60">
-              {job.retryHistory.map((entry) => (
-                <div key={entry.id} className="border-b border-border/50 px-3 py-2 text-xs last:border-b-0">
-                  <div className="flex justify-between gap-2">
-                    <span className="font-medium">
-                      Attempt {entry.retryAttempt || '0'} · {entry.finalOutcome}
-                    </span>
-                    <span className="text-muted-foreground">{entry.retryStatus || entry.callStatus}</span>
-                  </div>
-                  {entry.scheduledFor && (
-                    <p className="mt-1 text-muted-foreground">
-                      Scheduled {new Date(entry.scheduledFor).toLocaleString()}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {job.callEvents && job.callEvents.length > 0 && (
-          <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Attempt history</p>
-            <div className="max-h-48 overflow-auto rounded-md border border-border/60">
-              {job.callEvents.map((event) => (
-                <div key={event.id} className="border-b border-border/50 px-3 py-2 text-xs last:border-b-0">
-                  <div className="flex justify-between gap-2">
-                    <span className="font-medium">{event.eventType.replace(/_/g, ' ')}</span>
-                    <span className="text-muted-foreground">{new Date(event.createdAt).toLocaleString()}</span>
-                  </div>
-                  {event.twilioCallSid && (
-                    <p className="mt-1 font-mono text-muted-foreground">{event.twilioCallSid}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
         )}
       </CardContent>
     </Card>

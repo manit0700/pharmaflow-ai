@@ -16,12 +16,5 @@ export function isCallInProgress(status: string): boolean {
 }
 
 export function canStartCall(status: string): boolean {
-  return (
-    !isCallInProgress(status) &&
-    !['completed', 'resolved', 'blocked', 'cancelled', 'scheduled'].includes(status)
-  )
-}
-
-export function isScheduledRetry(status: string, retryStatus?: string | null): boolean {
-  return status === 'scheduled' || retryStatus === 'scheduled'
+  return !isCallInProgress(status) && status !== 'completed'
 }

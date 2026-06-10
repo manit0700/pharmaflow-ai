@@ -173,8 +173,10 @@ export function buildAiGatherTwiml(params: {
   const vr = new twilio.twiml.VoiceResponse()
   startAfterPause(vr)
   slowSay(vr, params.spoken)
+  const expectingDob = params.step === 'greeting'
   const gather = vr.gather({
-    input: ['speech'],
+    input: ['speech', 'dtmf'],
+    numDigits: expectingDob ? 4 : 1,
     speechTimeout: 'auto',
     action: voiceResponseUrl({
       callJobId: params.callJobId,

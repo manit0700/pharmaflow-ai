@@ -15,7 +15,7 @@ Set this in the Vercel project:
 ```env
 VITE_API_BASE_URL=https://pharmaflow-ai.vercel.app
 PUBLIC_BASE_URL=https://pharmaflow-ai.vercel.app
-DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require
+DATABASE_URL=file:/tmp/pharmaflow.db
 TWILIO_ACCOUNT_SID=AC...          # office account (not SK)
 TWILIO_API_KEY_SID=SK...          # office API key
 TWILIO_API_KEY_SECRET=...         # API key secret
@@ -39,22 +39,11 @@ From repo root:
 cd ~/Projects/pharmaflow-ai
 vercel link
 vercel env add VITE_API_BASE_URL production
-vercel env add DATABASE_URL production
-npm run db:migrate
 vercel deploy --prod
 ```
 
 When prompted for `VITE_API_BASE_URL` and `PUBLIC_BASE_URL`, enter the Vercel production URL, not localhost.
-When prompted for `DATABASE_URL`, enter a managed Postgres connection string. Do not use `file:/tmp/pharmaflow.db` for real call jobs, Twilio callbacks, or follow-up tasks.
 
 ## If You Need Backend On Vercel
 
-The backend is already exposed through Vercel Functions. Before production use, migrate the database from SQLite `/tmp` storage to managed Postgres. Without that migration, call jobs, Twilio callbacks, and staff tasks are not reliable.
-
-Verify after deploy:
-
-```bash
-curl https://pharmaflow-ai.vercel.app/api/health
-```
-
-The response should show `"provider":"postgres"`, `"durable":true`, and `"connected":true`.
+The backend is already exposed through Vercel Functions. Before production use, migrate the database from SQLite `/tmp` storage to managed Postgres. Without that migration, call jobs and Twilio callbacks are not reliable.

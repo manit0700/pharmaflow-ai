@@ -8,6 +8,17 @@ import type { CallJob, HealthResponse } from '@/utils/api'
 import { canStartCall, isActiveCallStatus } from '@/utils/callStatus'
 import { latestPatientReply } from '@/utils/liveTranscript'
 
+const EDITABLE_STATUS_OPTIONS = [
+  'queued',
+  'in_progress',
+  'completed',
+  'no_answer',
+  'failed',
+  'escalated',
+  'callback_requested',
+  'voicemail',
+] as const
+
 function formatCallStatus(status: string) {
   if (status === 'completed') return 'Completed'
   return status.replace(/_/g, ' ')
@@ -26,6 +37,7 @@ export function CallJobsTable({
   onStart,
   onRetry,
   onUpdateStatus,
+  updatingStatusIds,
   health,
   emptyMessage = 'Upload an Excel file to create call jobs.',
 }: {
@@ -33,7 +45,8 @@ export function CallJobsTable({
   callingId: string | null
   onStart: (id: string) => void
   onRetry: (id: string) => void
-  onUpdateStatus?: (id: string, status: string) => void
+  onUpdateStatus: (id: string, status: string) => void
+  updatingStatusIds?: Record<string, boolean>
   health?: HealthResponse | null
   emptyMessage?: string
 }) {
@@ -85,28 +98,28 @@ export function CallJobsTable({
                   </Badge>
                 </td>
                 <td className="py-2.5 pr-3">
-                  {onUpdateStatus ? (
-                    <div className="space-y-1">
-                      <Select value={j.callStatus} onValueChange={(v) => onUpdateStatus(j.id, v)}>
-                        <SelectTrigger className="h-8 w-44">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="queued">queued</SelectItem>
-                          <SelectItem value="in_progress">in progress</SelectItem>
-                          <SelectItem value="completed">completed</SelectItem>
-                          <SelectItem value="no_answer">no answer</SelectItem>
-                          <SelectItem value="failed">failed</SelectItem>
-                          <SelectItem value="escalated">escalated</SelectItem>
-                          <SelectItem value="callback_requested">callback requested</SelectItem>
-                          <SelectItem value="voicemail">voicemail</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <div className="text-[10px] text-muted-foreground">Editable by staff</div>
+                  <div className="space-y-1">
+                    <Select value={j.callStatus} onValueChange={(v) => onUpdateStatus(j.id, v)}>
+                      <SelectTrigger className="h-8 w-44" disabled={Boolean(updatingStatusIds?.[j.id])}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {EDITABLE_STATUS_OPTIONS.includes(j.callStatus as (typeof EDITABLE_STATUS_OPTIONS)[number]) ? null : (
+                          <SelectItem value={j.callStatus} disabled>
+                            {formatCallStatus(j.callStatus)}
+                          </SelectItem>
+                        )}
+                        {EDITABLE_STATUS_OPTIONS.map((status) => (
+                          <SelectItem key={status} value={status}>
+                            {formatCallStatus(status)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="text-[10px] text-muted-foreground">
+                      {updatingStatusIds?.[j.id] ? 'Saving…' : 'Editable by staff'}
                     </div>
-                  ) : (
-                    <div>{formatCallStatus(j.callStatus)}</div>
-                  )}
+                  </div>
                   {j.errorMessage && (
                     <div className="max-w-72 truncate text-xs text-destructive" title={j.errorMessage}>
                       {j.errorMessage}

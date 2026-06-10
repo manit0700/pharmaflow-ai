@@ -18,6 +18,7 @@ export function DashboardPage() {
     tasks,
     loading,
     callingId,
+    updatingStatusIds,
     activeJobs,
     refresh,
     onUpload,
@@ -128,6 +129,7 @@ export function DashboardPage() {
             onStart={(id) => void onStart(id)}
             onRetry={(id) => void onRetry(id)}
             onUpdateStatus={(id, status) => void onUpdateStatus(id, status)}
+            updatingStatusIds={updatingStatusIds}
           />
         </CardContent>
       </Card>

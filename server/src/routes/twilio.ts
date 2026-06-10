@@ -22,12 +22,6 @@ import {
 } from '../services/twilioFlow.js'
 import { getCallScript } from '../services/callScripts.js'
 import { decodeCallbackState } from '../services/callbackState.js'
-import {
-  ensureFollowUpTaskForCallJob,
-  ensureFollowUpTaskForCallOutcome,
-  resolveOutcomeFromPatientAction,
-  type FollowUpOutcome,
-} from '../services/followUpTasks.js'
 import type { CallReason } from '../config.js'
 
 export const twilioRouter = Router()
@@ -36,28 +30,7 @@ function normalizeTwilioStatus(status?: string): string | undefined {
   if (!status) return undefined
   if (status === 'answered' || status === 'in-progress') return 'in_progress'
   if (status === 'no-answer') return 'no_answer'
-  if (status === 'canceled') return 'cancelled'
   return status
-}
-
-const FINAL_TWILIO_STATUSES = new Set(['completed', 'busy', 'failed', 'no_answer', 'cancelled'])
-const INTERMEDIATE_TWILIO_STATUSES: Record<string, string> = {
-  queued: 'queued_live',
-  initiated: 'dialing',
-  ringing: 'ringing',
-  'in-progress': 'in_progress',
-  answered: 'in_progress',
-}
-const PATIENT_OUTCOME_STATUSES = new Set([
-  'completed',
-  'callback_requested',
-  'escalated',
-  'voicemail',
-  'resolved',
-])
-
-function isEmptyPatientResponse(value: string | null | undefined): boolean {
-  return !value || ['DOB verified', 'DOB retry'].includes(value)
 }
 
 type TranscriptEntry = {
@@ -106,56 +79,32 @@ async function createCallEventIfPossible(data: Parameters<typeof prisma.callEven
   }
 }
 
-async function createFollowUpFromOutcome(
-  job: {
-    id: string
-    patientName: string
-    phoneNumber: string
-    medicationName: string
-    callReason: string
-    callStatus: string
-    patientResponse?: string | null
-    followUpReason?: string | null
-    staffFollowUpNeeded?: boolean
-    aiSummary?: string | null
-  },
-  outcome: FollowUpOutcome,
-) {
+async function createStaffTask(params: {
+  callJobId?: string
+  patientName: string
+  phoneNumber: string
+  medicationName?: string
+  taskType: string
+  priority: string
+  notes: string
+  aiSummary?: string
+}) {
   try {
-    await ensureFollowUpTaskForCallOutcome(job, outcome)
+    await prisma.staffTask.create({ data: params })
   } catch {
-    // Do not fail a live call because task storage is unavailable.
+    // Do not fail a live call because the demo task store is unavailable.
   }
 }
 
 twilioRouter.post('/twilio/status', async (req, res) => {
   const { CallSid, CallStatus, CallDuration, ErrorCode, ErrorMessage } = req.body as Record<string, string>
   const query = req.query as Record<string, string>
-  const decodedState = decodeCallbackState(query.state)
 
-  let job =
+  const job =
     (await prisma.callJob.findFirst({ where: { twilioCallSid: CallSid } }).catch(() => null)) ??
     (query.callJobId
       ? await prisma.callJob.findUnique({ where: { id: query.callJobId } }).catch(() => null)
       : null)
-  if (!job && decodedState) {
-    job = await prisma.callJob
-      .create({
-        data: {
-          id: decodedState.id,
-          patientName: decodedState.patientName,
-          phoneNumber: decodedState.phoneNumber,
-          dob: decodedState.dob,
-          medicationName: decodedState.medicationName,
-          callReason: decodedState.callReason,
-          validationStatus: 'valid',
-          callStatus: 'queued_live',
-          twilioCallSid: CallSid,
-          callAttemptedAt: new Date(),
-        },
-      })
-      .catch(() => null)
-  }
   if (job) {
     await createCallEventIfPossible({
       callJobId: job.id,
@@ -165,43 +114,17 @@ twilioRouter.post('/twilio/status', async (req, res) => {
     })
 
     const normalizedStatus = normalizeTwilioStatus(CallStatus)
-    const completed = FINAL_TWILIO_STATUSES.has(normalizedStatus ?? '')
-    const intermediateStatus =
-      !completed && normalizedStatus ? INTERMEDIATE_TWILIO_STATUSES[normalizedStatus] : undefined
-    const endedBeforeAnswer =
-      completed &&
-      normalizedStatus === 'completed' &&
-      isEmptyPatientResponse(job.patientResponse) &&
-      !PATIENT_OUTCOME_STATUSES.has(job.callStatus)
-    const finalCallStatus =
-      normalizedStatus === 'completed' && PATIENT_OUTCOME_STATUSES.has(job.callStatus)
-        ? job.callStatus
-        : normalizedStatus
-    const finalPatientResponse = endedBeforeAnswer
-      ? 'Call ended before patient selected a response'
-      : job.patientResponse
-    const finalFollowUpNeeded =
-      endedBeforeAnswer ||
-      normalizedStatus === 'failed' ||
-      normalizedStatus === 'no_answer' ||
-      job.staffFollowUpNeeded
-    const finalFollowUpReason = endedBeforeAnswer
-      ? 'Patient hung up or call ended before menu response'
-      : normalizedStatus === 'failed' || normalizedStatus === 'no_answer'
-        ? `Call ended with status ${normalizedStatus}`
-        : job.followUpReason
+    const completed = ['completed', 'busy', 'failed', 'no_answer', 'canceled'].includes(normalizedStatus ?? '')
     await updateCallJobIfPossible(job.id, {
-      callStatus:
-        finalCallStatus ??
-        intermediateStatus ??
-        (normalizedStatus && !PATIENT_OUTCOME_STATUSES.has(job.callStatus) ? normalizedStatus : job.callStatus),
-      callAttemptedAt: job.callAttemptedAt ?? (CallStatus ? new Date() : undefined),
+      callStatus: normalizedStatus ?? job.callStatus,
       callCompletedAt: completed ? new Date() : job.callCompletedAt,
       callDuration: CallDuration ? Number(CallDuration) : job.callDuration,
-      patientResponse: finalPatientResponse,
       errorMessage: ErrorCode ? `${ErrorCode}: ${ErrorMessage ?? 'Twilio call error'}` : job.errorMessage,
-      staffFollowUpNeeded: finalFollowUpNeeded,
-      followUpReason: finalFollowUpReason,
+      staffFollowUpNeeded: normalizedStatus === 'failed' || normalizedStatus === 'no_answer' ? true : job.staffFollowUpNeeded,
+      followUpReason:
+        normalizedStatus === 'failed' || normalizedStatus === 'no_answer'
+          ? `Call ended with status ${normalizedStatus}`
+          : job.followUpReason,
       transcriptJson: transcriptJsonWith(job.transcriptJson, {
         mode: 'system',
         step: 'twilio_status',
@@ -210,21 +133,6 @@ twilioRouter.post('/twilio/status', async (req, res) => {
         summary: ErrorCode ? `${ErrorCode}: ${ErrorMessage ?? 'Twilio call error'}` : undefined,
       }),
     })
-
-    if (completed || finalFollowUpNeeded) {
-      const updatedJob = {
-        ...job,
-        callStatus: (finalCallStatus ?? normalizedStatus ?? job.callStatus) as string,
-        patientResponse: finalPatientResponse,
-        staffFollowUpNeeded: finalFollowUpNeeded,
-        followUpReason: finalFollowUpReason,
-      }
-      try {
-        await ensureFollowUpTaskForCallJob(updatedJob.id)
-      } catch {
-        // Non-blocking follow-up creation.
-      }
-    }
   }
 
   res.sendStatus(204)
@@ -282,26 +190,14 @@ async function handleVoiceResponse(req: import('express').Request, res: import('
 
     if (intent === 'staff') {
       if (inbound?.id) {
-        try {
-          await ensureFollowUpTaskForCallOutcome(
-            {
-              id: inbound.id,
-              patientName: 'Inbound caller',
-              phoneNumber: caller,
-              medicationName: '',
-              callReason: 'general_callback',
-              callStatus: 'escalated',
-              patientResponse: 'Inbound caller requested staff',
-              followUpReason: 'Inbound caller pressed 0 for staff',
-              staffFollowUpNeeded: true,
-              aiSummary: inbound.summary,
-            },
-            'inbound_handoff',
-            { callJobId: null, skipCallJobLink: true },
-          )
-        } catch {
-          // Non-blocking inbound task creation.
-        }
+        await createStaffTask({
+          patientName: 'Inbound caller',
+          phoneNumber: caller,
+          taskType: 'inbound_handoff',
+          priority: 'urgent',
+          notes: 'Inbound caller pressed 0 for staff',
+          aiSummary: inbound.summary ?? undefined,
+        })
       }
       res.type('text/xml').send(buildTransferTwiml())
       return
@@ -359,8 +255,6 @@ async function handleVoiceResponse(req: import('express').Request, res: import('
     await updateCallJobIfPossible(callJobId, {
       callStatus: 'voicemail',
       patientResponse: 'Voicemail',
-      staffFollowUpNeeded: true,
-      followUpReason: 'Call reached voicemail',
       transcriptJson: transcriptJsonWith(job.transcriptJson, {
         mode: 'system',
         step: 'answered_by',
@@ -368,27 +262,12 @@ async function handleVoiceResponse(req: import('express').Request, res: import('
         result: 'Voicemail',
       }),
     })
-    await createFollowUpFromOutcome(
-      {
-        id: job.id,
-        patientName: job.patientName,
-        phoneNumber: job.phoneNumber,
-        medicationName: job.medicationName,
-        callReason: job.callReason,
-        callStatus: 'voicemail',
-        patientResponse: 'Voicemail',
-        followUpReason: 'Call reached voicemail',
-        staffFollowUpNeeded: true,
-        aiSummary: job.aiSummary,
-      },
-      'voicemail',
-    )
     res.type('text/xml').send(buildVoicemailTwiml(reason, ctx))
     return
   }
 
   if (mode === 'ai') {
-    await handleAiVoiceResponse(res, { callJobId, step, reason, ctx, job, speech, state })
+    await handleAiVoiceResponse(res, { callJobId, step, reason, ctx, job, speech, digits, state })
     return
   }
 
@@ -450,21 +329,15 @@ async function handleDtmfVoiceResponse(
           action: 'callback',
         }),
       })
-      await createFollowUpFromOutcome(
-        {
-          id: job.id,
-          patientName: job.patientName,
-          phoneNumber: job.phoneNumber,
-          medicationName: job.medicationName,
-          callReason: reason,
-          callStatus: 'escalated',
-          patientResponse: 'DOB verification failed',
-          followUpReason: 'Patient could not verify date of birth on call',
-          staffFollowUpNeeded: true,
-          aiSummary: null,
-        },
-        'dob_failed',
-      )
+      await createStaffTask({
+        callJobId,
+        patientName: job.patientName,
+        phoneNumber: job.phoneNumber,
+        medicationName: job.medicationName,
+        taskType: 'dob_failed',
+        priority: 'high',
+        notes: 'DOB verification failed during outbound call',
+      })
       res.type('text/xml').send(buildVoicemailTwiml(reason, ctx))
       return
     }
@@ -512,34 +385,17 @@ async function handleDtmfVoiceResponse(
       }),
     })
 
-    const followUpOutcome =
-      resolveOutcomeFromPatientAction({
-        patientResponse: option.patientResponse,
-        action: option.action,
-        callReason: reason,
-      }) ??
-      (needsStaff
-        ? option.action === 'callback'
-          ? 'callback_requested'
-          : 'pharmacist_review'
-        : null)
-
-    if (followUpOutcome) {
-      await createFollowUpFromOutcome(
-        {
-          id: job.id,
-          patientName: job.patientName,
-          phoneNumber: job.phoneNumber,
-          medicationName: job.medicationName,
-          callReason: reason,
-          callStatus,
-          patientResponse: option.patientResponse,
-          followUpReason: option.patientResponse,
-          staffFollowUpNeeded: needsStaff,
-          aiSummary,
-        },
-        followUpOutcome,
-      )
+    if (needsStaff) {
+      await createStaffTask({
+        callJobId,
+        patientName: job.patientName,
+        phoneNumber: job.phoneNumber,
+        medicationName: job.medicationName,
+        taskType: option.action === 'callback' ? 'callback_request' : 'patient_request',
+        priority: option.action === 'transfer' ? 'urgent' : 'normal',
+        notes: option.patientResponse,
+        aiSummary,
+      })
     }
 
     res
@@ -566,17 +422,71 @@ async function handleAiVoiceResponse(
     ctx: ReturnType<typeof scriptContextFromJob>
     job: {
       id: string
+      dob?: string
       patientName: string
       phoneNumber: string
       medicationName: string
+      patientResponse?: string | null
       messagesJson: string | null
       transcriptJson: string | null
     }
     speech: string
+    digits?: string
     state?: string
   },
 ) {
-  const { callJobId, step, reason, ctx, job, speech, state } = params
+  const { callJobId, step, reason, ctx, job, speech, digits, state } = params
+
+  // Hybrid mode: in AI calls, also accept keypad input.
+  if (digits && /^\d+$/.test(digits)) {
+    if (step === 'ai_greeting' || step === 'greeting') {
+      if (digits.length < 4) {
+        // During AI greeting, keypad input is reserved for DOB verification.
+        // Do not treat partial digits as menu actions to avoid accidental transfer.
+        res.type('text/xml').send(buildAiGreetingTwiml({ callJobId, reason, ctx, state }))
+        return
+      }
+      await handleDtmfVoiceResponse(res, {
+        callJobId,
+        step: 'dob',
+        reason,
+        ctx,
+        job: {
+          id: job.id,
+          dob: job.dob ?? '',
+          patientName: job.patientName,
+          phoneNumber: job.phoneNumber,
+          medicationName: job.medicationName,
+          patientResponse: job.patientResponse ?? null,
+          transcriptJson: job.transcriptJson,
+        },
+        digits: digits.slice(0, 4),
+        state,
+      })
+      return
+    }
+
+    if ((step === 'ai' || step === 'menu') && digits.length >= 1) {
+      await handleDtmfVoiceResponse(res, {
+        callJobId,
+        step: 'menu',
+        reason,
+        ctx,
+        job: {
+          id: job.id,
+          dob: job.dob ?? '',
+          patientName: job.patientName,
+          phoneNumber: job.phoneNumber,
+          medicationName: job.medicationName,
+          patientResponse: job.patientResponse ?? null,
+          transcriptJson: job.transcriptJson,
+        },
+        digits: digits.charAt(0),
+        state,
+      })
+      return
+    }
+  }
 
   if (step === 'ai_greeting' || (step === 'greeting' && !speech)) {
     res.type('text/xml').send(buildAiGreetingTwiml({ callJobId, reason, ctx, state }))
@@ -630,34 +540,17 @@ async function handleAiVoiceResponse(
       }),
     })
 
-    const aiOutcome =
-      resolveOutcomeFromPatientAction({
-        patientResponse: turn.patientResponse ?? userText,
-        action: turn.action === 'callback' ? 'callback' : turn.action === 'transfer' ? 'transfer' : 'complete',
-        callReason: reason,
-      }) ??
-      (needsStaff
-        ? turn.action === 'callback'
-          ? 'callback_requested'
-          : 'pharmacist_review'
-        : null)
-
-    if (aiOutcome) {
-      await createFollowUpFromOutcome(
-        {
-          id: job.id,
-          patientName: job.patientName,
-          phoneNumber: job.phoneNumber,
-          medicationName: job.medicationName,
-          callReason: reason,
-          callStatus,
-          patientResponse: turn.patientResponse,
-          followUpReason: turn.patientResponse ?? turn.summary ?? null,
-          staffFollowUpNeeded: needsStaff,
-          aiSummary: turn.summary ?? aiSummary,
-        },
-        aiOutcome,
-      )
+    if (needsStaff) {
+      await createStaffTask({
+        callJobId,
+        patientName: job.patientName,
+        phoneNumber: job.phoneNumber,
+        medicationName: job.medicationName,
+        taskType: turn.action === 'callback' ? 'callback_request' : 'patient_request',
+        priority: turn.action === 'transfer' ? 'urgent' : 'normal',
+        notes: turn.patientResponse ?? turn.summary ?? userText,
+        aiSummary: turn.summary,
+      })
     }
 
     if (turn.action === 'continue') {

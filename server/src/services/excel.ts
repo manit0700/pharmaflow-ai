@@ -102,15 +102,10 @@ export function buildExportWorkbook(
     notes: string | null
     validationStatus: string
     callStatus: string
-    callAttemptedAt: Date | string | null
-    callDuration: number | null
     patientResponse: string | null
     aiSummary: string | null
-    transcriptJson?: string | null
     staffFollowUpNeeded: boolean
     followUpReason: string | null
-    errorMessage?: string | null
-    validationError?: string | null
   }[],
 ): Buffer {
   const data = jobs.map((j) => ({
@@ -122,14 +117,10 @@ export function buildExportWorkbook(
     notes: j.notes ?? '',
     validation_status: j.validationStatus,
     call_status: j.callStatus,
-    call_attempted_at: j.callAttemptedAt ? new Date(j.callAttemptedAt).toISOString() : '',
-    call_duration: j.callDuration ?? '',
     patient_response: j.patientResponse ?? '',
     ai_summary: j.aiSummary ?? '',
-    transcript_available: j.transcriptJson ? 'yes' : 'no',
-    staff_follow_up_needed: j.staffFollowUpNeeded ? 'yes' : 'no',
+    staff_follow_up: j.staffFollowUpNeeded ? 'yes' : 'no',
     follow_up_reason: j.followUpReason ?? '',
-    error_message: j.errorMessage ?? j.validationError ?? '',
   }))
   const sheet = XLSX.utils.json_to_sheet(data)
   const book = XLSX.utils.book_new()

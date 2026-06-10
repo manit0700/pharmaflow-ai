@@ -1,6 +1,6 @@
 # PharmaFlow AI
 
-Production-style **demo** SaaS UI for pharmacy AI workflow operations — visual automation, dashboards, conversations, integrations, compliance, analytics, and a local Express/Prisma backend for Excel auto-call testing.
+Production-style **demo** SaaS UI for pharmacy AI workflow operations — visual automation (n8n-inspired), dashboards, conversations, integrations, compliance, and analytics. **Mock data only**; no backend or authentication.
 
 ## Setup
 
@@ -24,106 +24,10 @@ npm run db:seed
 npm run dev
 ```
 
-API: http://localhost:4002/api/health  
+API: http://localhost:4000/api/health  
 Real mode UI: http://localhost:5173/calls?mode=real
 
 Open the URL shown in the terminal (typically `http://localhost:5173`).
-
-### Run frontend + backend together
-
-```bash
-cd ~/Projects/pharmaflow-ai
-npm run api:kill-old
-npm run dev:all
-```
-
-If Vite opens on `5174+`, use the URL printed in the terminal.
-
-### Twilio trial live-call checklist
-
-Use simulated mode for normal development:
-
-```env
-AUTO_CALL_TEST_MODE=true
-PUBLIC_BASE_URL=http://localhost:4002
-ENABLE_SMS_FOLLOWUP=false
-```
-
-Use live mode only after ngrok is running and the destination number is verified in Twilio Console:
-
-```env
-PORT=4002
-AUTO_CALL_TEST_MODE=false
-PUBLIC_BASE_URL=https://YOUR-NGROK-DOMAIN.ngrok-free.app
-TWILIO_PHONE_NUMBER=+1YOUR_TWILIO_NUMBER
-PHARMACY_STAFF_PHONE_NUMBER=+1VERIFIED_STAFF_NUMBER
-```
-
-Start ngrok:
-
-```bash
-cd ~/Projects/pharmaflow-ai
-npm run ngrok:tunnel
-```
-
-Copy the HTTPS forwarding URL into `server/.env` as `PUBLIC_BASE_URL`, restart `npm run dev:all`, then call only a Twilio-verified US test number. Trial accounts cannot call unverified patient numbers.
-
-### Deploy for a permanent `PUBLIC_BASE_URL`
-
-For real Twilio webhooks without ngrok, deploy the API and use the public app URL as `PUBLIC_BASE_URL`.
-
-```env
-PUBLIC_BASE_URL=https://pharmaflow-ai.vercel.app
-VITE_API_BASE_URL=
-```
-
-### Production database on Vercel
-
-Local development can use SQLite:
-
-```env
-DATABASE_URL=file:./dev.db
-```
-
-Vercel production must use a durable Postgres database. Do not use `file:/tmp/pharmaflow.db` for real calls because serverless storage can disappear between Twilio callbacks.
-
-Use Neon, Supabase, Vercel Postgres, or another managed Postgres provider, then set:
-
-```env
-DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require
-```
-
-The build automatically generates the correct Prisma client:
-
-- `file:` URL -> SQLite schema for local dev
-- `postgres://` or `postgresql://` URL -> Postgres schema for Vercel
-
-Run the database commands from the repo root:
-
-```bash
-npm run db:check
-npm run db:migrate
-npm run db:seed   # optional fake demo data only
-```
-
-On Vercel:
-
-```bash
-vercel env rm DATABASE_URL production
-vercel env add DATABASE_URL production
-npm run db:migrate
-vercel deploy --prod
-```
-
-After deploy, check:
-
-```bash
-curl https://pharmaflow-ai.vercel.app/api/health
-```
-
-The health response should include `"database":{"provider":"postgres","durable":true,"connected":true}`. If it reports SQLite on Vercel, the deployment is still using temporary storage and is not ready for real call status tracking.
-
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for additional deployment notes.
 
 ### Live demo (presentation mode)
 

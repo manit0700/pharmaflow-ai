@@ -8,9 +8,8 @@
     "dev:tsx": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "db:check": "node ../scripts/prisma-db.mjs check",
-    "db:migrate": "node ../scripts/prisma-db.mjs migrate",
-    "db:seed": "node ../scripts/prisma-db.mjs seed",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "node prisma/seed.mjs",
     "db:studio": "prisma studio"
   },
   "dependencies": {

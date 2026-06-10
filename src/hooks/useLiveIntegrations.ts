@@ -7,9 +7,6 @@ function buildIntegrations(health: HealthResponse | null): IntegrationStatus[] {
   const twilioOk = Boolean(health?.twilioConfigured)
   const aiOk = health?.callMode !== 'ai' || health.aiCallConfigured === true
   const liveReady = Boolean(health?.testMode || health?.liveCallReadiness?.ready)
-  const dbProvider = health?.database?.provider
-  const dbConnected = health?.database?.connected === true
-  const dbName = dbProvider === 'postgres' ? 'PostgreSQL' : dbProvider === 'sqlite' ? 'SQLite' : 'Database'
 
   return [
     {
@@ -20,8 +17,8 @@ function buildIntegrations(health: HealthResponse | null): IntegrationStatus[] {
       health: twilioOk && liveReady ? 'healthy' : twilioOk ? 'degraded' : 'offline',
       lastSync: health?.ok ? now : '—',
       summary: twilioOk
-        ? `Outbound from ${health?.twilioFromNumber ?? 'configured number'} · ${health?.twilioAccount?.type ?? 'account'}`
-        : 'Twilio credentials not configured',
+        ? `From ${health?.twilioFromNumber ?? 'configured'} · ${health?.twilioAccount?.type ?? 'account'}`
+        : 'Set TWILIO_ACCOUNT_SID, API key, and TWILIO_PHONE_NUMBER in local.config.json',
     },
     {
       id: 'openai',
@@ -40,7 +37,7 @@ function buildIntegrations(health: HealthResponse | null): IntegrationStatus[] {
           ? aiOk
             ? `Model: ${health.callAiModel ?? 'gpt-4o-mini'}`
             : 'CALL_MODE=ai requires OPENAI_API_KEY'
-          : 'Keypad (DTMF) scripts active — set CALL_MODE=ai to enable speech',
+          : 'Using keypad (DTMF) scripts — set CALL_MODE=ai to enable',
     },
     {
       id: 'api',
@@ -50,19 +47,17 @@ function buildIntegrations(health: HealthResponse | null): IntegrationStatus[] {
       health: health?.ok ? 'healthy' : 'offline',
       lastSync: health?.ok ? now : '—',
       summary: health?.ok
-        ? `Service online · v${health.apiVersion ?? 1}`
-        : 'API unavailable — check deployment health',
+        ? `Port ${health.port ?? 4002} · config: ${health.configSource ?? 'env'}`
+        : 'Run npm run dev:pc to start the API',
     },
     {
       id: 'database',
-      name: dbName,
+      name: 'SQLite database',
       category: 'Call jobs & tasks',
-      connected: dbConnected,
-      health: dbConnected ? 'healthy' : health?.database?.provider ? 'degraded' : 'offline',
-      lastSync: dbConnected ? now : '—',
-      summary: dbConnected
-        ? 'Patients, call outcomes, follow-ups, and audit events persisted'
-        : health?.database?.warning ?? 'Database connection unavailable',
+      connected: Boolean(health?.ok),
+      health: health?.ok ? 'healthy' : 'offline',
+      lastSync: health?.ok ? now : '—',
+      summary: 'Stores patients, call results, staff follow-ups, and audit events',
     },
     {
       id: 'ngrok',
@@ -76,10 +71,10 @@ function buildIntegrations(health: HealthResponse | null): IntegrationStatus[] {
           : 'degraded',
       lastSync: health?.publicBaseUrl ? now : '—',
       summary: health?.testMode
-        ? 'Test mode — instant call simulation'
+        ? 'Test mode — webhooks not required'
         : health?.liveCallReadiness?.ready
-          ? health.publicBaseUrl ?? 'HTTPS webhook URL configured'
-          : 'Configure PUBLIC_BASE_URL for live Twilio webhooks',
+          ? health.publicBaseUrl ?? 'HTTPS URL configured'
+          : 'Set PUBLIC_BASE_URL to ngrok HTTPS URL for live calls',
     },
   ]
 }

@@ -5,14 +5,11 @@ import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { useTheme } from '@/hooks/useTheme'
 import { CommandDialog } from '@/components/shared/CommandDialog'
-import { FollowUpProvider } from '@/context/FollowUpContext'
-
 export function AppShell() {
   const { dark, toggle } = useTheme()
   const [commandOpen, setCommandOpen] = useState(false)
 
   return (
-    <FollowUpProvider>
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -28,6 +25,5 @@ export function AppShell() {
       <CommandDialog open={commandOpen} onOpenChange={setCommandOpen} />
       <Toaster position="bottom-right" richColors closeButton />
     </div>
-    </FollowUpProvider>
   )
 }

@@ -35,7 +35,7 @@ async function main() {
       dob: '1980-01-20',
       medicationName: 'Atorvastatin 20mg',
       callReason: 'general_callback',
-      notes: 'Invalid phone — needs staff review',
+      notes: 'Bad phone for demo validation',
       validationStatus: 'invalid',
       validationError: 'Invalid phone_number',
       callStatus: 'invalid',

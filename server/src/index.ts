@@ -2,13 +2,8 @@ import './loadSettings.js'
 import os from 'os'
 import { createApp } from './app.js'
 import { config } from './config.js'
-import { ensureRuntimeDb } from './lib/runtimeDb.js'
 
 const app = createApp()
-
-void ensureRuntimeDb().catch((err) => {
-  console.error('Database initialization failed on startup:', err)
-})
 
 function firstLanUrl(port: number): string | null {
   try {

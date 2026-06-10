@@ -8,28 +8,20 @@ import {
   BarChart3,
   Activity,
   Phone,
-  ClipboardList,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useFollowUpContext } from '@/context/FollowUpContext'
-import { useAppHealth } from '@/hooks/useAppHealth'
-import { Badge } from '@/components/ui/badge'
 
 const nav = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/calls', icon: Phone, label: 'Calls' },
-  { to: '/follow-ups', icon: ClipboardList, label: 'Follow-Ups', showCount: true },
-  { to: '/analytics', icon: BarChart3, label: 'Analytics' },
-  { to: '/conversations', icon: MessageSquare, label: 'Call History' },
-  { to: '/workflows', icon: GitBranch, label: 'Call Flow' },
+  { to: '/calls', icon: Phone, label: 'Call Recordings' },
+  { to: '/workflows', icon: GitBranch, label: 'Call flow' },
+  { to: '/conversations', icon: MessageSquare, label: 'Call history' },
   { to: '/integrations', icon: Plug, label: 'Integrations' },
-  { to: '/compliance', icon: Shield, label: 'Audit Log' },
+  { to: '/compliance', icon: Shield, label: 'Audit log' },
+  { to: '/analytics', icon: BarChart3, label: 'Analytics' },
 ]
 
 export function Sidebar() {
-  const { openCount } = useFollowUpContext()
-  const { health, dbConnected, dbLabel } = useAppHealth()
-
   return (
     <aside className="hidden w-56 shrink-0 border-r border-border bg-sidebar md:flex md:flex-col">
       <div className="flex h-14 items-center gap-2 border-b border-border px-4">
@@ -38,11 +30,11 @@ export function Sidebar() {
         </div>
         <div>
           <p className="text-sm font-semibold leading-tight">PharmaFlow AI</p>
-          <p className="text-[10px] text-muted-foreground">Pharmacy operations</p>
+          <p className="text-[10px] text-muted-foreground">Outbound pharmacy calls</p>
         </div>
       </div>
       <nav className="flex flex-1 flex-col gap-0.5 p-3">
-        {nav.map(({ to, icon: Icon, label, showCount }) => (
+        {nav.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
@@ -57,30 +49,13 @@ export function Sidebar() {
             }
           >
             <Icon className="h-4 w-4 shrink-0" />
-            <span className="flex-1">{label}</span>
-            {showCount && openCount > 0 && (
-              <span
-                className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground"
-                aria-label={`${openCount} open follow-ups`}
-              >
-                {openCount}
-              </span>
-            )}
+            {label}
           </NavLink>
         ))}
       </nav>
-      <div className="border-t border-border p-4 space-y-2">
-        {health?.ok ? (
-          <Badge variant={dbConnected ? 'success' : 'warning'} className="text-[10px]">
-            {dbConnected ? `${dbLabel} connected` : 'Database check needed'}
-          </Badge>
-        ) : (
-          <Badge variant="destructive" className="text-[10px]">
-            API offline
-          </Badge>
-        )}
+      <div className="border-t border-border p-4">
         <p className="text-[10px] leading-relaxed text-muted-foreground">
-          Outbound calls, follow-ups, and owner analytics from live production data.
+          Live on your PC API. Configure Twilio in server/local.config.json.
         </p>
       </div>
     </aside>

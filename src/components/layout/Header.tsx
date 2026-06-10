@@ -5,8 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { fetchTasks, type StaffTask } from '@/utils/api'
-import { useFollowUpContext } from '@/context/FollowUpContext'
-import { useAppHealth } from '@/hooks/useAppHealth'
 
 interface HeaderProps {
   dark: boolean
@@ -15,8 +13,6 @@ interface HeaderProps {
 }
 
 export function Header({ dark, onToggleTheme, onOpenCommand }: HeaderProps) {
-  const { openCount } = useFollowUpContext()
-  const { health, dbConnected } = useAppHealth()
   const [tasks, setTasks] = useState<StaffTask[]>([])
 
   useEffect(() => {
@@ -30,9 +26,7 @@ export function Header({ dark, onToggleTheme, onOpenCommand }: HeaderProps) {
     return () => clearInterval(id)
   }, [])
 
-  const apiOpenTasks = tasks.filter((t) => t.status === 'open')
-  const bellCount = openCount > 0 ? openCount : apiOpenTasks.length
-  const systemsOk = health?.ok && dbConnected
+  const openTasks = tasks.filter((t) => t.status === 'open')
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-4 border-b border-border bg-card px-4 lg:px-6">
@@ -45,19 +39,16 @@ export function Header({ dark, onToggleTheme, onOpenCommand }: HeaderProps) {
           readOnly
         />
       </div>
-      <div className="ml-auto flex items-center gap-2">
-        <Badge variant={systemsOk ? 'success' : health?.ok ? 'warning' : 'destructive'} className="hidden sm:inline-flex">
-          {systemsOk ? 'All systems operational' : health?.ok ? 'Database check' : 'Offline'}
-        </Badge>
+      <div className="ml-auto flex items-center gap-1">
         <Button variant="ghost" size="icon" onClick={onToggleTheme} aria-label="Toggle theme">
           {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
         <Button variant="ghost" size="icon" className="relative" asChild aria-label="Staff follow-ups">
-          <Link to="/follow-ups">
+          <Link to="/dashboard">
             <Bell className="h-4 w-4" />
-            {bellCount > 0 && (
+            {openTasks.length > 0 && (
               <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
-                {bellCount}
+                {openTasks.length}
               </span>
             )}
           </Link>
@@ -66,7 +57,7 @@ export function Header({ dark, onToggleTheme, onOpenCommand }: HeaderProps) {
           <User className="h-4 w-4" />
         </Button>
         <Badge variant="secondary" className="hidden lg:inline-flex">
-          Pharmacy owner
+          Pharmacy staff
         </Badge>
       </div>
     </header>

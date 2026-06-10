@@ -40,12 +40,20 @@ export function getLiveCallReadiness(): LiveCallReadiness {
   }
   if (!base) {
     issues.push('Set PUBLIC_BASE_URL to your ngrok HTTPS URL before live calls.')
+  } else if (/\s|->/.test(base)) {
+    issues.push(
+      'PUBLIC_BASE_URL must be a single HTTPS URL only. Remove extra text/arrows and keep only your ngrok URL, e.g. https://abc123.ngrok-free.app.',
+    )
   } else if (/localhost|127\.0\.0\.1/i.test(base)) {
     issues.push(
       'PUBLIC_BASE_URL cannot be localhost for live calls. Run ngrok http 4002, paste the HTTPS URL into server/local.config.json, and restart the API.',
     )
   } else if (!base.startsWith('https://')) {
     issues.push('PUBLIC_BASE_URL must be a public HTTPS URL, for example https://abc123.ngrok-free.app.')
+  } else if (config.configSource === 'local.config.json' && /vercel\.app/i.test(base)) {
+    issues.push(
+      'PUBLIC_BASE_URL points to Vercel while running local PC mode. Twilio callbacks will update the deployed server, not your local dashboard. Use your ngrok HTTPS URL for local live updates.',
+    )
   }
   if (config.callMode === 'ai' && !config.openaiApiKey?.trim()) {
     issues.push('CALL_MODE=ai requires OPENAI_API_KEY in server/local.config.json or server/.env.')
@@ -63,6 +71,11 @@ function assertLiveCallReadiness(): void {
 
 function assertPublicWebhookBase(): void {
   const base = config.publicBaseUrl
+  if (/\s|->/.test(base)) {
+    throw new Error(
+      'PUBLIC_BASE_URL must be one HTTPS URL only. Remove extra text and keep only your ngrok URL, e.g. https://abc123.ngrok-free.app.',
+    )
+  }
   if (/localhost|127\.0\.0\.1/i.test(base)) {
     throw new Error(
       'PUBLIC_BASE_URL cannot be localhost — Twilio cannot reach your computer. ' +

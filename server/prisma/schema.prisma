@@ -3,12 +3,12 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model CallJob {
-  id                  String   @id @default(cuid())
+  id                  String      @id @default(cuid())
   uploadBatchId       String?
   uploadBatch         UploadBatch? @relation(fields: [uploadBatchId], references: [id])
   patientName         String
@@ -17,9 +17,9 @@ model CallJob {
   medicationName      String
   callReason          String
   notes               String?
-  validationStatus    String   @default("pending")
+  validationStatus    String      @default("pending")
   validationError     String?
-  callStatus          String   @default("queued")
+  callStatus          String      @default("queued")
   twilioCallSid       String?
   callAttemptedAt     DateTime?
   callCompletedAt     DateTime?
@@ -36,21 +36,21 @@ model CallJob {
   staffNotes          String?
   safetyFlagsJson     String?
   duplicateOfId       String?
-  doNotCall           Boolean  @default(false)
-  staffFollowUpNeeded Boolean  @default(false)
+  doNotCall           Boolean     @default(false)
+  staffFollowUpNeeded Boolean     @default(false)
   followUpReason      String?
-  smsStatus           String   @default("none")
+  smsStatus           String      @default("none")
   parentCallJobId     String?
   retryOfCallJobId    String?
-  retryAttempt        Int      @default(0)
-  maxRetryAttempts    Int      @default(3)
+  retryAttempt        Int         @default(0)
+  maxRetryAttempts    Int         @default(3)
   scheduledFor        DateTime?
   retryReason         String?
-  retryStatus         String   @default("none")
+  retryStatus         String      @default("none")
   createdFromOutcome  String?
   relatedTaskId       String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
 
   staffTasks StaffTask[]
   callEvents CallEvent[]
@@ -86,39 +86,46 @@ model DoNotCallEntry {
 }
 
 model StaffTask {
-  id             String   @id @default(cuid())
+  id             String      @id @default(cuid())
   callJobId      String?
-  callJob        CallJob? @relation(fields: [callJobId], references: [id])
+  callJob        CallJob?    @relation(fields: [callJobId], references: [id])
   patientName    String
   phoneNumber    String
   medicationName String?
   taskType       String
-  priority       String   @default("normal")
-  status         String   @default("open")
+  priority       String      @default("normal")
+  status         String      @default("open")
   notes          String?
   aiSummary      String?
-  assignedTeam   String   @default("Unassigned")
+  assignedTeam   String      @default("Unassigned")
   dueDate        String?
-  dueTime        String   @default("15:00")
+  dueTime        String      @default("15:00")
   sourceWorkflow String?
   issueSummary   String?
   activityJson   String?
   completedAt    DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 
   taskActivities TaskActivity[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+  @@index([callJobId])
 }
 
 model TaskActivity {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   taskId       String
   task         StaffTask @relation(fields: [taskId], references: [id])
   activityType String
   message      String
-  actor        String   @default("system")
+  actor        String    @default("system")
   metadataJson String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
+
+  @@index([taskId])
 }
 
 model AuditEvent {
@@ -130,6 +137,8 @@ model AuditEvent {
   message      String
   metadataJson String?
   createdAt    DateTime @default(now())
+
+  @@index([entityType, entityId])
 }
 
 model InboundCall {

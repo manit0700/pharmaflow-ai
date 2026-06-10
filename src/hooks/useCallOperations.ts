@@ -51,6 +51,7 @@ export function useCallOperations() {
   const [tasks, setTasks] = useState<StaffTask[]>([])
   const [loading, setLoading] = useState(true)
   const [callingId, setCallingId] = useState<string | null>(null)
+  const [updatingStatusIds, setUpdatingStatusIds] = useState<Record<string, boolean>>({})
 
   const refresh = useCallback(async (silent = false) => {
     try {
@@ -192,6 +193,7 @@ export function useCallOperations() {
   }
 
   const onUpdateStatus = async (id: string, callStatus: string) => {
+    setUpdatingStatusIds((prev) => ({ ...prev, [id]: true }))
     try {
       const updated = await updateCallJob(id, { callStatus })
       setJobs((prev) => {
@@ -203,6 +205,12 @@ export function useCallOperations() {
       await refresh(true)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not update call status')
+    } finally {
+      setUpdatingStatusIds((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
     }
   }
 
@@ -219,6 +227,7 @@ export function useCallOperations() {
     tasks,
     loading,
     callingId,
+    updatingStatusIds,
     refresh,
     onUpload,
     onCreate,

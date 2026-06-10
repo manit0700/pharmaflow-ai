@@ -15,12 +15,9 @@
     "ngrok:setup": "bash scripts/ngrok-setup.sh",
     "ngrok:tunnel": "bash scripts/ngrok-tunnel.sh",
     "check:api": "bash scripts/check-api.sh",
-    "db:check": "node scripts/prisma-db.mjs check",
-    "db:migrate": "node scripts/prisma-db.mjs migrate",
-    "db:seed": "node scripts/prisma-db.mjs seed",
     "preview:scripts": "npm run build --prefix server && node scripts/preview-call-scripts.mjs",
     "preview:ai-prompt": "npm run build --prefix server && node scripts/preview-ai-prompt.mjs",
-    "build": "node scripts/prisma-generate.mjs && tsc -b && vite build",
+    "build": "prisma generate --schema server/prisma/schema.prisma && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
