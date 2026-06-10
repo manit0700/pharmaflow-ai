@@ -101,7 +101,9 @@ export function CallJobsTable({
                   <div className="space-y-1">
                     <Select value={j.callStatus} onValueChange={(v) => onUpdateStatus(j.id, v)}>
                       <SelectTrigger className="h-8 w-44" disabled={Boolean(updatingStatusIds?.[j.id])}>
-                        <SelectValue />
+                        <SelectValue placeholder={formatCallStatus(j.callStatus)}>
+                          {formatCallStatus(j.callStatus)}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {EDITABLE_STATUS_OPTIONS.includes(j.callStatus as (typeof EDITABLE_STATUS_OPTIONS)[number]) ? null : (

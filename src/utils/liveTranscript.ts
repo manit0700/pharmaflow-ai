@@ -28,16 +28,15 @@ function parseTranscriptJson(json: string | null): TranscriptEntry[] {
   }
 }
 
-function dtmfInputLabel(step: string, input: string): string {
-  if (step === 'dob') return 'Entered date of birth on keypad'
+function dtmfInputLabel(step: string, input: string, result?: string): string {
+  if (step === 'dob') {
+    if (result === 'DOB verified') return `Entered DOB: ${input} digits — verified ✓`
+    if (result === 'DOB retry') return `Entered DOB: ${input} digits — mismatch, retrying`
+    if (result === 'DOB verification failed') return `Entered DOB: ${input} digits — verification failed`
+    return `Entered date of birth: ${input} digits`
+  }
   if (step === 'menu') {
-    const labels: Record<string, string> = {
-      '1': 'Pressed 1',
-      '2': 'Pressed 2',
-      '3': 'Pressed 3',
-      '0': 'Pressed 0 (speak with staff)',
-    }
-    return labels[input] ?? `Pressed key ${input}`
+    return `Pressed ${input}${result ? ` — "${result}"` : ''}`
   }
   return input
 }
@@ -61,7 +60,7 @@ function transcriptToFeed(entries: TranscriptEntry[]): LiveFeedItem[] {
         id: `in-${i}`,
         at: e.at,
         speaker: 'patient',
-        text: e.mode === 'ai' ? e.input : dtmfInputLabel(e.step, e.input),
+        text: e.mode === 'ai' ? e.input : dtmfInputLabel(e.step, e.input, e.result),
         step: e.step,
       })
     }

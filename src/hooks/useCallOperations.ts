@@ -52,6 +52,7 @@ export function useCallOperations() {
   const [loading, setLoading] = useState(true)
   const [callingId, setCallingId] = useState<string | null>(null)
   const [updatingStatusIds, setUpdatingStatusIds] = useState<Record<string, boolean>>({})
+  const [recentlyEndedAt, setRecentlyEndedAt] = useState<number | null>(null)
 
   const refresh = useCallback(async (silent = false) => {
     try {
@@ -84,11 +85,21 @@ export function useCallOperations() {
 
   const activeJobs = jobs.filter((j) => isActiveCallStatus(j.callStatus))
 
+  // When active calls drop to zero, keep fast polling for 20s to catch final status
   useEffect(() => {
-    const ms = activeJobs.length > 0 || callingId ? 2000 : 8000
+    if (activeJobs.length === 0 && callingId === null) {
+      setRecentlyEndedAt((prev) => prev ?? Date.now())
+    } else {
+      setRecentlyEndedAt(null)
+    }
+  }, [activeJobs.length, callingId])
+
+  useEffect(() => {
+    const stillRecent = recentlyEndedAt !== null && Date.now() - recentlyEndedAt < 20000
+    const ms = activeJobs.length > 0 || callingId ? 2000 : stillRecent ? 2000 : 8000
     const id = setInterval(() => void refresh(true), ms)
     return () => clearInterval(id)
-  }, [refresh, activeJobs.length, callingId])
+  }, [refresh, activeJobs.length, callingId, recentlyEndedAt])
 
   const onUpload = async (file: File) => {
     try {

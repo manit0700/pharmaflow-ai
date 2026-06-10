@@ -30,6 +30,10 @@ function normalizeTwilioStatus(status?: string): string | undefined {
   if (!status) return undefined
   if (status === 'answered' || status === 'in-progress') return 'in_progress'
   if (status === 'no-answer') return 'no_answer'
+  if (status === 'busy') return 'no_answer'
+  if (status === 'canceled' || status === 'cancelled') return 'no_answer'
+  if (status === 'ringing') return 'ringing'
+  if (status === 'initiated' || status === 'queued') return 'queued_live'
   return status
 }
 
