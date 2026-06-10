@@ -30,10 +30,11 @@ function parseTranscriptJson(json: string | null): TranscriptEntry[] {
 
 function dtmfInputLabel(step: string, input: string, result?: string): string {
   if (step === 'dob') {
-    if (result === 'DOB verified') return `Entered DOB: ${input} digits — verified ✓`
-    if (result === 'DOB retry') return `Entered DOB: ${input} digits — mismatch, retrying`
-    if (result === 'DOB verification failed') return `Entered DOB: ${input} digits — verification failed`
-    return `Entered date of birth: ${input} digits`
+    const digits = input && /[\d*]/.test(input) ? ` (${input})` : ''
+    if (result === 'DOB verified') return `Entered DOB${digits} — verified ✓`
+    if (result === 'DOB retry') return `Entered DOB${digits} — mismatch, retrying`
+    if (result === 'DOB verification failed') return `Entered DOB${digits} — verification failed`
+    return `Entered date of birth${digits}`
   }
   if (step === 'menu') {
     return `Pressed ${input}${result ? ` — "${result}"` : ''}`

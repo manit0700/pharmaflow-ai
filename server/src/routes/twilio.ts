@@ -302,6 +302,7 @@ async function handleDtmfVoiceResponse(
   const script = getCallScript(reason)
 
   if (step === 'dob') {
+    const maskedDigits = digits
     if (verifyDob(digits, job.dob)) {
       await updateCallJobIfPossible(callJobId, {
         patientResponse: 'DOB verified',
@@ -309,7 +310,7 @@ async function handleDtmfVoiceResponse(
         transcriptJson: transcriptJsonWith(job.transcriptJson, {
           mode: 'dtmf',
           step: 'dob',
-          input: '4 digits received',
+          input: maskedDigits,
           result: 'DOB verified',
         }),
       })
@@ -328,7 +329,7 @@ async function handleDtmfVoiceResponse(
         transcriptJson: transcriptJsonWith(job.transcriptJson, {
           mode: 'dtmf',
           step: 'dob',
-          input: '4 digits received',
+          input: maskedDigits,
           result: 'DOB verification failed',
           action: 'callback',
         }),
@@ -351,7 +352,7 @@ async function handleDtmfVoiceResponse(
       transcriptJson: transcriptJsonWith(job.transcriptJson, {
         mode: 'dtmf',
         step: 'dob',
-        input: '4 digits received',
+        input: maskedDigits,
         result: 'DOB retry',
       }),
     })
