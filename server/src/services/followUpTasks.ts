@@ -16,6 +16,7 @@ export type FollowUpOutcome =
   | 'ended_early'
   | 'dob_failed'
   | 'inbound_handoff'
+  | 'needs_review'
 
 type CallJobRecord = {
   id: string
@@ -156,9 +157,48 @@ const OUTCOME_CONFIG: Record<FollowUpOutcome, OutcomeConfig> = {
     staffFollowUp: true,
     resolutionStatus: 'escalated',
   },
+  needs_review: {
+    taskType: 'pharmacist_review',
+    priority: 'high',
+    activityMessage: 'Call did not reach a clear outcome. Manual staff review required.',
+    issueSummary: (job) => job.followUpReason ?? 'Call marked needs_review — no conclusive outcome recorded.',
+    staffFollowUp: true,
+    resolutionStatus: 'pending',
+  },
 }
 
 const OPEN_TASK_STATUSES = ['open', 'in_progress']
+
+/**
+ * Compute due date + time based on priority and when the task is being created.
+ * - urgent → same day 17:00 (staff must act today)
+ * - high   → same day 17:00, or tomorrow 10:00 if created after 15:00
+ * - normal → next business day 17:00 (skip weekends)
+ */
+function computeDueDateTime(priority: string, baseDate: Date = new Date()): { dueDate: string; dueTime: string } {
+  const hour = baseDate.getHours()
+
+  if (priority === 'urgent') {
+    return { dueDate: baseDate.toISOString().slice(0, 10), dueTime: '17:00' }
+  }
+
+  if (priority === 'high') {
+    if (hour < 15) {
+      return { dueDate: baseDate.toISOString().slice(0, 10), dueTime: '17:00' }
+    }
+    const next = new Date(baseDate)
+    next.setDate(next.getDate() + 1)
+    return { dueDate: next.toISOString().slice(0, 10), dueTime: '10:00' }
+  }
+
+  // normal / low → next business day
+  const next = new Date(baseDate)
+  next.setDate(next.getDate() + 1)
+  const dow = next.getDay()
+  if (dow === 6) next.setDate(next.getDate() + 2) // Sat → Mon
+  if (dow === 0) next.setDate(next.getDate() + 1) // Sun → Mon
+  return { dueDate: next.toISOString().slice(0, 10), dueTime: '17:00' }
+}
 
 function serializeMetadata(metadata: Record<string, unknown>): string {
   return JSON.stringify(metadata)
@@ -236,6 +276,7 @@ export function resolveOutcomeFromCallJob(job: CallJobRecord): FollowUpOutcome |
   if (status === 'voicemail' || response === 'Voicemail') return 'voicemail'
   if (status === 'callback_requested') return 'callback_requested'
   if (status === 'escalated') return 'escalated'
+  if (status === 'needs_review') return 'needs_review'
 
   if (response === 'DOB verification failed') return 'dob_failed'
   if (response === 'Call ended before patient selected a response') return 'ended_early'
@@ -298,10 +339,10 @@ export function resolveOutcomeFromPatientAction(params: {
 }
 
 async function findExistingOpenTask(callJobId: string, taskType: string) {
-  void taskType
   return prisma.staffTask.findFirst({
     where: {
       callJobId,
+      taskType,
       status: { in: OPEN_TASK_STATUSES },
     },
     orderBy: { createdAt: 'desc' },
@@ -346,6 +387,7 @@ export async function ensureFollowUpTaskForCallOutcome(
 
   const issueSummary = options.extraNote ?? config.issueSummary(job)
   const maskedName = maskPatientName(job.patientName)
+  const { dueDate, dueTime } = computeDueDateTime(config.priority)
 
   const task = await prisma.staffTask.create({
     data: {
@@ -359,8 +401,8 @@ export async function ensureFollowUpTaskForCallOutcome(
       notes: issueSummary,
       aiSummary: job.aiSummary,
       assignedTeam: 'Unassigned',
-      dueDate: new Date().toISOString().slice(0, 10),
-      dueTime: '15:00',
+      dueDate,
+      dueTime,
       sourceWorkflow: mapCallReasonToWorkflow(job.callReason),
       issueSummary,
     },

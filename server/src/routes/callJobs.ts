@@ -85,6 +85,47 @@ callJobsRouter.get('/call-jobs/export', async (_req, res) => {
   res.send(buffer)
 })
 
+callJobsRouter.get('/call-jobs/scheduler-status', async (_req, res) => {
+  try {
+    const now = new Date()
+    const [pendingBatch, pendingRetry] = await Promise.all([
+      prisma.callJob.findMany({
+        where: {
+          callStatus: 'scheduled',
+          retryOfCallJobId: null,
+          validationStatus: 'valid',
+        },
+        select: { id: true, patientName: true, scheduledFor: true },
+        orderBy: { scheduledFor: 'asc' },
+        take: 50,
+      }),
+      prisma.callJob.findMany({
+        where: {
+          retryStatus: 'scheduled',
+          retryOfCallJobId: { not: null },
+          callStatus: { in: ['scheduled', 'queued'] },
+        },
+        select: { id: true, patientName: true, scheduledFor: true },
+        orderBy: { scheduledFor: 'asc' },
+        take: 50,
+      }),
+    ])
+    const isDue = (j: { scheduledFor: Date | null }) =>
+      j.scheduledFor !== null && j.scheduledFor <= now
+    res.json({
+      now: now.toISOString(),
+      batchScheduled: pendingBatch.length,
+      batchDue: pendingBatch.filter(isDue).length,
+      retryScheduled: pendingRetry.length,
+      retryDue: pendingRetry.filter(isDue).length,
+      nextBatch: pendingBatch[0]?.scheduledFor?.toISOString() ?? null,
+      nextRetry: pendingRetry[0]?.scheduledFor?.toISOString() ?? null,
+    })
+  } catch {
+    res.json({ error: 'Could not read scheduler status' })
+  }
+})
+
 callJobsRouter.post('/call-jobs/schedule-queued', async (req, res) => {
   try {
     const body = req.body as Record<string, unknown>

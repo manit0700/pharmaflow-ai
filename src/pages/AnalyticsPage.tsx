@@ -24,12 +24,25 @@ const emptyAnalytics: AnalyticsResponse = {
   completed: 0,
   escalated: 0,
   withPatientResponse: 0,
+  todayCompleted: 0,
+  todayTasksCreated: 0,
+  todayTasksResolved: 0,
+  voicemailCount: 0,
+  noAnswerCount: 0,
+  confirmationCount: 0,
+  avgCallDurationSeconds: null,
   byReason: [],
   byStatus: [],
   series: [],
   aiVsHuman: [],
   channelMix: [],
   completionByReason: [],
+}
+
+function formatDuration(seconds: number | null): string {
+  if (seconds === null) return '—'
+  if (seconds < 60) return `${seconds}s`
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
 }
 
 export function AnalyticsPage() {
@@ -91,6 +104,41 @@ export function AnalyticsPage() {
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-4">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Completed today</p>
+            <p className="text-2xl font-semibold">{data.todayCompleted}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Avg call duration</p>
+            <p className="text-2xl font-semibold">{formatDuration(data.avgCallDurationSeconds)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Voicemail / no answer</p>
+            <p className="text-2xl font-semibold">{data.voicemailCount + data.noAnswerCount}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {data.attempted > 0
+                ? `${(((data.voicemailCount + data.noAnswerCount) / data.attempted) * 100).toFixed(1)}% of attempted`
+                : '—'}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-xs text-muted-foreground">Tasks today</p>
+            <p className="text-2xl font-semibold">{data.todayTasksCreated}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {data.todayTasksResolved} resolved
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {data.totalJobs === 0 ? (
@@ -203,16 +251,15 @@ export function AnalyticsPage() {
 
           {/* Refill performance stat row */}
           {(() => {
-            const refillTotal = data.byReason.find((r) => r.reason === 'refill_reminder')?.count ?? 0
-            const refillCompleted =
-              data.completionByReason.find((r) => r.reason === 'refill_reminder')?.completed ?? 0
-            const refillRate =
-              refillTotal > 0 ? `${((refillCompleted / refillTotal) * 100).toFixed(1)}%` : '—'
+            const confirmationRate =
+              data.attempted > 0
+                ? `${((data.confirmationCount / data.attempted) * 100).toFixed(1)}%`
+                : '—'
             const avgResponseRate =
               data.attempted > 0
                 ? `${((data.withPatientResponse / data.attempted) * 100).toFixed(1)}%`
                 : '—'
-            const followUpRate =
+            const escalationRate =
               data.attempted > 0
                 ? `${((data.escalated / data.attempted) * 100).toFixed(1)}%`
                 : '0%'
@@ -220,16 +267,16 @@ export function AnalyticsPage() {
               <div className="lg:col-span-2 grid gap-4 sm:grid-cols-3">
                 <Card>
                   <CardContent className="p-4">
-                    <p className="text-xs text-muted-foreground">Refill confirmation rate</p>
-                    <p className="text-2xl font-semibold">{refillRate}</p>
+                    <p className="text-xs text-muted-foreground">Confirmation rate</p>
+                    <p className="text-2xl font-semibold">{confirmationRate}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Completed refill calls / total refill jobs
+                      Patients who confirmed / calls attempted
                     </p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="p-4">
-                    <p className="text-xs text-muted-foreground">Avg response rate</p>
+                    <p className="text-xs text-muted-foreground">Response rate</p>
                     <p className="text-2xl font-semibold">{avgResponseRate}</p>
                     <p className="text-xs text-muted-foreground mt-1">
                       Patient answers / calls attempted
@@ -238,10 +285,10 @@ export function AnalyticsPage() {
                 </Card>
                 <Card>
                   <CardContent className="p-4">
-                    <p className="text-xs text-muted-foreground">Follow-up rate</p>
-                    <p className="text-2xl font-semibold">{followUpRate}</p>
+                    <p className="text-xs text-muted-foreground">Escalation rate</p>
+                    <p className="text-2xl font-semibold">{escalationRate}</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Escalations / calls attempted
+                      Staff follow-ups / calls attempted
                     </p>
                   </CardContent>
                 </Card>

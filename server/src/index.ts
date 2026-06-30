@@ -2,7 +2,7 @@ import './loadSettings.js'
 import os from 'os'
 import { createApp } from './app.js'
 import { config } from './config.js'
-import { markStaleActiveCalls, runDueScheduledRetries } from './services/retrySchedule.js'
+import { markStaleActiveCalls, runDueBatchScheduledCalls, runDueScheduledRetries } from './services/retrySchedule.js'
 
 const app = createApp()
 
@@ -33,8 +33,11 @@ app.listen(config.port, '0.0.0.0', () => {
 
 const schedulerIntervalMs = 30_000
 setInterval(() => {
+  void runDueBatchScheduledCalls().catch((err) => {
+    console.error('[batch-scheduler] Failed', err instanceof Error ? err.message : err)
+  })
   void runDueScheduledRetries().catch((err) => {
-    console.error('Scheduled call runner failed', err instanceof Error ? err.message : err)
+    console.error('[retry-scheduler] Failed', err instanceof Error ? err.message : err)
   })
 }, schedulerIntervalMs)
 

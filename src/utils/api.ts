@@ -327,6 +327,13 @@ export interface AnalyticsResponse {
   completed: number
   escalated: number
   withPatientResponse: number
+  todayCompleted: number
+  todayTasksCreated: number
+  todayTasksResolved: number
+  voicemailCount: number
+  noAnswerCount: number
+  confirmationCount: number
+  avgCallDurationSeconds: number | null
   byReason: { reason: string; count: number }[]
   byStatus: { status: string; count: number }[]
   series: { date: string; calls: number; completed: number; escalations: number }[]

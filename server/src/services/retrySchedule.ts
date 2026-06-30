@@ -484,6 +484,102 @@ export async function markStaleActiveCalls(): Promise<{ marked: number }> {
   return { marked }
 }
 
+/**
+ * Run dashboard-batch-scheduled calls that are now due.
+ * Handles original (non-retry) call jobs scheduled via the "Schedule queued" button.
+ */
+export async function runDueBatchScheduledCalls(): Promise<{
+  processed: number
+  results: Array<{ callJobId: string; status: 'started' | 'blocked' | 'failed'; message: string }>
+}> {
+  const now = new Date()
+
+  // Original jobs only — retries are handled by runDueScheduledRetries
+  const dueJobs = await prisma.callJob.findMany({
+    where: {
+      callStatus: 'scheduled',
+      scheduledFor: { lte: now },
+      twilioCallSid: null,
+      retryOfCallJobId: null,
+      validationStatus: 'valid',
+    },
+    orderBy: { scheduledFor: 'asc' },
+    select: {
+      id: true,
+      patientName: true,
+      phoneNumber: true,
+      scheduledFor: true,
+    },
+    take: 25,
+  })
+
+  if (dueJobs.length === 0) return { processed: 0, results: [] }
+
+  const readiness = phoneProvider.getReadiness()
+  const canDial = config.autoCallTestMode || (phoneProvider.isConfigured() && readiness.ready)
+
+  const results: Array<{ callJobId: string; status: 'started' | 'blocked' | 'failed'; message: string }> = []
+
+  for (const job of dueJobs) {
+    if (!canDial) {
+      const message = readiness.issues.join(' ') || `${phoneProvider.displayName} is not ready.`
+      await prisma.callJob.update({
+        where: { id: job.id },
+        data: { callStatus: 'queued', retryStatus: 'blocked', errorMessage: message },
+      }).catch(() => null)
+      results.push({ callJobId: job.id, status: 'blocked', message })
+      continue
+    }
+
+    try {
+      await prisma.callJob.update({
+        where: { id: job.id },
+        data: { retryStatus: 'in_progress', callStatus: 'queued' },
+      })
+      await startCallJobById(job.id)
+      await prisma.callEvent.create({
+        data: {
+          callJobId: job.id,
+          twilioCallSid: null,
+          eventType: 'batch_scheduler_fired',
+          eventPayload: JSON.stringify({
+            scheduledFor: job.scheduledFor?.toISOString() ?? null,
+            firedAt: now.toISOString(),
+          }),
+        },
+      }).catch(() => null)
+      console.log(`[batch-scheduler] Started call for ${job.patientName} (${job.id})`)
+      results.push({ callJobId: job.id, status: 'started', message: 'Batch scheduled call started.' })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Batch call start failed'
+      await prisma.callJob.update({
+        where: { id: job.id },
+        data: {
+          callStatus: 'failed',
+          callCompletedAt: new Date(),
+          errorMessage: message,
+          staffFollowUpNeeded: true,
+          followUpReason: 'Batch-scheduled call could not be started',
+          retryStatus: 'blocked',
+        },
+      }).catch(() => null)
+      console.error(`[batch-scheduler] Failed to start call ${job.id}: ${message}`)
+      results.push({ callJobId: job.id, status: 'failed', message })
+    }
+  }
+
+  if (results.length > 0) {
+    console.log(
+      `[batch-scheduler] Processed ${results.length} due call(s): ` +
+      `${results.filter((r) => r.status === 'started').length} started, ` +
+      `${results.filter((r) => r.status === 'failed').length} failed, ` +
+      `${results.filter((r) => r.status === 'blocked').length} blocked`,
+    )
+  }
+
+  return { processed: results.length, results }
+}
+
 export async function runDueScheduledRetries() {
   const now = new Date()
   const dueJobs = await prisma.callJob.findMany({
@@ -492,6 +588,8 @@ export async function runDueScheduledRetries() {
       scheduledFor: { lte: now },
       twilioCallSid: null,
       callStatus: { in: ['scheduled', 'queued'] },
+      // Retry jobs only — batch originals handled by runDueBatchScheduledCalls
+      retryOfCallJobId: { not: null },
     },
     orderBy: { scheduledFor: 'asc' },
     take: 25,

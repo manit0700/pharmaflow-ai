@@ -163,5 +163,115 @@ test('in_progress + recent updatedAt = NOT stale (too new)', () => {
   assert.equal(isStaleCandidate({ callStatus: 'in_progress', updatedAt: RECENT }, CUTOFF), false)
 })
 
+// ────────────────────────────────────────────────────────────────────────────
+// computeDueDateTime — mirrors followUpTasks.ts
+// ────────────────────────────────────────────────────────────────────────────
+function computeDueDateTime(priority, baseDate = new Date()) {
+  const hour = baseDate.getHours()
+  if (priority === 'urgent') {
+    return { dueDate: baseDate.toISOString().slice(0, 10), dueTime: '17:00' }
+  }
+  if (priority === 'high') {
+    if (hour < 15) return { dueDate: baseDate.toISOString().slice(0, 10), dueTime: '17:00' }
+    const next = new Date(baseDate)
+    next.setDate(next.getDate() + 1)
+    return { dueDate: next.toISOString().slice(0, 10), dueTime: '10:00' }
+  }
+  const next = new Date(baseDate)
+  next.setDate(next.getDate() + 1)
+  const dow = next.getDay()
+  if (dow === 6) next.setDate(next.getDate() + 2)
+  if (dow === 0) next.setDate(next.getDate() + 1)
+  return { dueDate: next.toISOString().slice(0, 10), dueTime: '17:00' }
+}
+
+const MONDAY_10AM = new Date('2026-06-29T10:00:00')
+const MONDAY_4PM  = new Date('2026-06-29T16:00:00')
+const FRIDAY_10AM = new Date('2026-06-26T10:00:00')
+
+console.log('\n--- computeDueDateTime ---')
+test('urgent: same day 17:00', () => {
+  const r = computeDueDateTime('urgent', MONDAY_10AM)
+  assert.equal(r.dueDate, '2026-06-29')
+  assert.equal(r.dueTime, '17:00')
+})
+test('high before 15:00: same day 17:00', () => {
+  const r = computeDueDateTime('high', MONDAY_10AM)
+  assert.equal(r.dueDate, '2026-06-29')
+  assert.equal(r.dueTime, '17:00')
+})
+test('high after 15:00: next day 10:00', () => {
+  const r = computeDueDateTime('high', MONDAY_4PM)
+  assert.equal(r.dueDate, '2026-06-30')
+  assert.equal(r.dueTime, '10:00')
+})
+test('normal Mon: next day (Tue)', () => {
+  const r = computeDueDateTime('normal', MONDAY_10AM)
+  assert.equal(r.dueDate, '2026-06-30')
+  assert.equal(r.dueTime, '17:00')
+})
+test('normal Fri: skips weekend to Mon', () => {
+  const r = computeDueDateTime('normal', FRIDAY_10AM)
+  assert.equal(r.dueDate, '2026-06-29')
+  assert.equal(r.dueTime, '17:00')
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+// batch scheduler eligibility — pure logic (no DB)
+// Mirrors runDueBatchScheduledCalls query conditions
+// ────────────────────────────────────────────────────────────────────────────
+function isBatchEligible(job, now) {
+  return (
+    job.callStatus === 'scheduled' &&
+    job.retryOfCallJobId === null &&
+    job.validationStatus === 'valid' &&
+    job.twilioCallSid === null &&
+    job.scheduledFor !== null &&
+    new Date(job.scheduledFor) <= now
+  )
+}
+
+const NOW_DATE = new Date()
+const PAST = new Date(NOW_DATE.getTime() - 60_000).toISOString()
+const FUTURE = new Date(NOW_DATE.getTime() + 60_000).toISOString()
+
+console.log('\n--- batch scheduler eligibility ---')
+test('original job due in past → eligible', () => {
+  assert.equal(
+    isBatchEligible({ callStatus: 'scheduled', retryOfCallJobId: null, validationStatus: 'valid', twilioCallSid: null, scheduledFor: PAST }, NOW_DATE),
+    true,
+  )
+})
+test('job scheduled in future → NOT eligible yet', () => {
+  assert.equal(
+    isBatchEligible({ callStatus: 'scheduled', retryOfCallJobId: null, validationStatus: 'valid', twilioCallSid: null, scheduledFor: FUTURE }, NOW_DATE),
+    false,
+  )
+})
+test('retry job (retryOfCallJobId set) → NOT batch eligible', () => {
+  assert.equal(
+    isBatchEligible({ callStatus: 'scheduled', retryOfCallJobId: 'some-id', validationStatus: 'valid', twilioCallSid: null, scheduledFor: PAST }, NOW_DATE),
+    false,
+  )
+})
+test('job already dialing (twilioCallSid set) → NOT eligible', () => {
+  assert.equal(
+    isBatchEligible({ callStatus: 'scheduled', retryOfCallJobId: null, validationStatus: 'valid', twilioCallSid: 'CA123', scheduledFor: PAST }, NOW_DATE),
+    false,
+  )
+})
+test('invalid job → NOT eligible', () => {
+  assert.equal(
+    isBatchEligible({ callStatus: 'scheduled', retryOfCallJobId: null, validationStatus: 'invalid', twilioCallSid: null, scheduledFor: PAST }, NOW_DATE),
+    false,
+  )
+})
+test('completed job → NOT eligible', () => {
+  assert.equal(
+    isBatchEligible({ callStatus: 'completed', retryOfCallJobId: null, validationStatus: 'valid', twilioCallSid: null, scheduledFor: PAST }, NOW_DATE),
+    false,
+  )
+})
+
 console.log(`\nResult: ${passed} passed, ${failed} failed\n`)
 if (failed > 0) process.exit(1)
