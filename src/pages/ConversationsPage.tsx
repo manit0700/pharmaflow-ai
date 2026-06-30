@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircle2, Clock, MessageSquare, Mic, Phone, Search, ShieldCheck, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, MessageSquare, Mic, Phone, Search, ShieldCheck, XCircle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { ResolutionBadge } from '@/components/shared/StatusBadge'
+import { callStatusLabel } from '@/utils/callStatus'
 import { CallRecordingPlayer } from '@/components/conversations/CallRecordingPlayer'
 import { useConversationList } from '@/hooks/useConversationList'
 import { formatDuration, formatTime } from '@/lib/utils'
@@ -18,6 +19,8 @@ const DETAIL_LABEL: Record<string, string> = {
   patientResponse: 'Patient answer',
   phone: 'Phone number',
   callStatus: 'Call status',
+  dobVerified: 'Identity',
+  aiTurns: 'AI turns',
 }
 
 function detailLabel(key: string): string {
@@ -222,7 +225,13 @@ export function ConversationsPage() {
                       {selected.extractedData.medication}
                     </Badge>
                   ) : null}
-                  {selected.escalationReason && (
+                  {(selected.extractedData.callStatus === 'voicemail' || selected.extractedData.callStatus === 'needs_review') && (
+                    <Badge variant="warning" className="flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3" />
+                      {callStatusLabel(selected.extractedData.callStatus)}
+                    </Badge>
+                  )}
+                  {selected.escalationReason && selected.extractedData.callStatus !== 'voicemail' && selected.extractedData.callStatus !== 'needs_review' && (
                     <Badge variant="warning">Follow-up: {selected.escalationReason}</Badge>
                   )}
                 </div>
@@ -319,13 +328,14 @@ export function ConversationsPage() {
                             <dd className={cn(
                               'font-medium text-right break-words',
                               k === 'patientResponse' && v && 'text-primary',
-                              k === 'callStatus' && 'capitalize',
                             )}>
                               {k === 'patientResponse' && v
                                 ? <span className="inline-flex items-center gap-1">
                                     <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />{v}
                                   </span>
-                                : v || <span className="text-muted-foreground italic font-normal">—</span>}
+                                : k === 'callStatus'
+                                  ? callStatusLabel(v)
+                                  : v || <span className="text-muted-foreground italic font-normal">—</span>}
                             </dd>
                           </div>
                         ))}

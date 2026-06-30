@@ -38,6 +38,7 @@ export function DashboardPage() {
     queued,
     completed,
     invalid,
+    needsReview,
   } = useCallOperations()
 
   const kpis: KPIStat[] = [
@@ -59,8 +60,12 @@ export function DashboardPage() {
       id: 'valid',
       label: 'Valid patients',
       value: String(jobs.filter((j) => j.validationStatus === 'valid').length),
-      change: invalid.length > 0 ? `${invalid.length} need review` : 'All rows valid',
-      trend: invalid.length > 0 ? 'down' : 'up',
+      change: needsReview.length > 0
+        ? `${needsReview.length} need manual review`
+        : invalid.length > 0
+          ? `${invalid.length} invalid rows`
+          : 'All rows valid',
+      trend: needsReview.length > 0 || invalid.length > 0 ? 'down' : 'up',
     },
     {
       id: 'tasks',

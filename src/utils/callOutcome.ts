@@ -35,20 +35,21 @@ const ACTIVE_STATUSES = new Set([
   'in_progress',
 ])
 
-const NEEDS_REVIEW_STATUSES = new Set(['callback_requested', 'escalated', 'blocked'])
+const NEEDS_REVIEW_STATUSES = new Set(['callback_requested', 'escalated', 'blocked', 'needs_review'])
 
 export function getFinalOutcome(job: CallJobLike): FinalCallOutcome {
   const status = job.callStatus.toLowerCase()
 
-  if (NEEDS_REVIEW_STATUSES.has(status) || (job.staffFollowUpNeeded && !ACTIVE_STATUSES.has(status))) {
-    return 'Needs Review'
-  }
   if (status === 'completed' || status === 'resolved') return 'Completed'
   if (status === 'no_answer') return 'No Answer'
   if (status === 'busy') return 'Busy'
   if (status === 'failed') return 'Failed'
   if (status === 'voicemail') return 'Voicemail'
   if (status === 'cancelled' || status === 'canceled') return 'Canceled'
+  if (status === 'needs_review') return 'Needs Review'
+  if (NEEDS_REVIEW_STATUSES.has(status) || (job.staffFollowUpNeeded && !ACTIVE_STATUSES.has(status))) {
+    return 'Needs Review'
+  }
   if (ACTIVE_STATUSES.has(status)) return 'In Progress'
   if (status === 'invalid') return 'Needs Review'
   if (status === 'scheduled') return 'Queued'
@@ -105,8 +106,17 @@ export function getRetryRecommendation(job: CallJobLike): RetryRecommendation {
     return {
       shouldRetry: true,
       recommendedRetryAt: startOfNextDay(new Date(baseTime)).toISOString(),
-      reason: 'Call reached voicemail.',
+      reason: 'Call reached voicemail or automated system.',
       nextActionLabel: 'Optional retry tomorrow',
+    }
+  }
+
+  if (status === 'needs_review') {
+    return {
+      shouldRetry: false,
+      recommendedRetryAt: null,
+      reason: job.followUpReason ?? 'Call did not receive a carrier callback — possible tunnel issue.',
+      nextActionLabel: 'Review and retry manually',
     }
   }
 
@@ -149,9 +159,10 @@ export function outcomeBadgeVariant(
   outcome: FinalCallOutcome,
 ): 'success' | 'secondary' | 'destructive' | 'warning' | 'outline' {
   if (outcome === 'Completed') return 'success'
-  if (outcome === 'No Answer' || outcome === 'Voicemail') return 'secondary'
+  if (outcome === 'No Answer') return 'secondary'
+  if (outcome === 'Voicemail') return 'warning'
   if (outcome === 'Failed' || outcome === 'Canceled') return 'destructive'
   if (outcome === 'Busy') return 'warning'
-  if (outcome === 'Needs Review') return 'warning'
+  if (outcome === 'Needs Review') return 'destructive'
   return 'outline'
 }

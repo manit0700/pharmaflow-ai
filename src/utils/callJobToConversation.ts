@@ -43,9 +43,11 @@ function mapCallReason(reason: string): RequestType {
 }
 
 function mapResolution(job: CallJob): ResolutionStatus {
-  if (job.staffFollowUpNeeded || job.callStatus === 'escalated') return 'escalated'
+  // voicemail and needs_review are auto-closed — show as pending, not escalated
+  if (job.callStatus === 'voicemail' || job.callStatus === 'needs_review') return 'pending'
+  if (job.staffFollowUpNeeded || job.callStatus === 'escalated' || job.callStatus === 'callback_requested') return 'escalated'
   if (job.patientResponse || job.callStatus === 'completed') return 'resolved'
-  if (job.callStatus === 'voicemail' || job.callStatus === 'no_answer') return 'pending'
+  if (job.callStatus === 'no_answer') return 'pending'
   return 'pending'
 }
 
@@ -172,7 +174,7 @@ export function isAttemptedCall(job: CallJob): boolean {
     job.callAttemptedAt ||
       job.callCompletedAt ||
       job.twilioCallSid ||
-      ['completed', 'escalated', 'voicemail', 'no_answer', 'failed', 'in_progress', 'dialing'].includes(
+      ['completed', 'escalated', 'callback_requested', 'voicemail', 'no_answer', 'failed', 'in_progress', 'dialing', 'needs_review'].includes(
         job.callStatus,
       ),
   )

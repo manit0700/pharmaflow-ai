@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { CallJob, HealthResponse } from '@/utils/api'
-import { canStartCall, isActiveCallStatus } from '@/utils/callStatus'
+import { callStatusLabel, canStartCall, isActiveCallStatus } from '@/utils/callStatus'
 import { latestPatientReply } from '@/utils/liveTranscript'
 import { buildLiveFeed } from '@/utils/liveTranscript'
 import { cn } from '@/lib/utils'
@@ -18,12 +18,14 @@ const EDITABLE_STATUS_OPTIONS = [
   'escalated',
   'callback_requested',
   'voicemail',
+  'needs_review',
 ] as const
 
 function formatCallStatus(status: string) {
-  if (status === 'completed') return 'Completed'
-  return status.replace(/_/g, ' ')
+  return callStatusLabel(status)
 }
+
+const STALE_TUNNEL_REASON = 'Carrier callback missing or tunnel unavailable'
 
 function formatResolution(job: CallJob) {
   if (job.staffFollowUpNeeded) return 'Needs follow-up'
@@ -127,7 +129,11 @@ function ExpandedRow({ job }: { job: CallJob }) {
         {job.followUpReason && (
           <div>
             <p className="text-[10px] font-semibold uppercase text-muted-foreground">Follow-up reason</p>
-            <p className="text-xs">{job.followUpReason}</p>
+            <p className="text-xs">
+              {job.followUpReason === STALE_TUNNEL_REASON
+                ? 'Callback tunnel/carrier update missing — start ngrok and verify /api/health'
+                : job.followUpReason}
+            </p>
           </div>
         )}
         {job.errorMessage && (
@@ -325,8 +331,13 @@ export function CallJobsTable({
                     {formatResolution(j)}
                   </Badge>
                   {j.followUpReason && (
-                    <div className="mt-1 max-w-64 truncate text-xs text-muted-foreground" title={j.followUpReason}>
-                      {j.followUpReason}
+                    <div
+                      className="mt-1 max-w-64 truncate text-xs text-muted-foreground"
+                      title={j.followUpReason === STALE_TUNNEL_REASON ? 'Callback tunnel/carrier update missing' : j.followUpReason}
+                    >
+                      {j.followUpReason === STALE_TUNNEL_REASON
+                        ? 'Callback tunnel/carrier update missing'
+                        : j.followUpReason}
                     </div>
                   )}
                   {j.transcriptJson && (

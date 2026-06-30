@@ -16,7 +16,7 @@ import {
   type HealthResponse,
   type StaffTask,
 } from '@/utils/api'
-import { isActiveCallStatus } from '@/utils/callStatus'
+import { isActiveCallStatus, TERMINAL_CALL_STATUSES } from '@/utils/callStatus'
 
 const LOCAL_JOBS_KEY = 'pharmaflow.callJobs'
 
@@ -257,10 +257,11 @@ export function useCallOperations() {
   }
 
   const queued = jobs.filter(
-    (j) => j.validationStatus === 'valid' && !['completed', 'failed'].includes(j.callStatus),
+    (j) => j.validationStatus === 'valid' && !TERMINAL_CALL_STATUSES.has(j.callStatus),
   )
   const completed = jobs.filter((j) => j.callStatus === 'completed')
   const invalid = jobs.filter((j) => j.validationStatus !== 'valid')
+  const needsReview = jobs.filter((j) => j.callStatus === 'needs_review' || j.callStatus === 'voicemail')
 
   return {
     health,
@@ -281,5 +282,6 @@ export function useCallOperations() {
     queued,
     completed,
     invalid,
+    needsReview,
   }
 }

@@ -189,6 +189,9 @@ export function AnalyticsPage() {
                         if (entry.status === 'completed') fill = '#22c55e'
                         else if (entry.status === 'failed' || entry.status === 'escalated') fill = '#ef4444'
                         else if (entry.status === 'callback_requested') fill = '#eab308'
+                        else if (entry.status === 'voicemail') fill = '#f59e0b'
+                        else if (entry.status === 'needs_review') fill = '#f97316'
+                        else if (entry.status === 'no_answer') fill = '#6b7280'
                         return <Cell key={entry.status} fill={fill} />
                       })}
                     </Bar>
