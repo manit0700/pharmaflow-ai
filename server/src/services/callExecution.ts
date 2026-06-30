@@ -4,6 +4,7 @@ import { getCallScript } from './callScripts.js'
 import { buildAiSummary } from './script.js'
 import { needsStaffFollowUp, normalizePhone } from './safety.js'
 import { phoneProvider } from './phoneProvider.js'
+import { assertCallerIdUsable } from './callerIdCheck.js'
 
 const ACTIVE_CALL_STATUSES = new Set(['dialing', 'queued_live', 'ringing', 'in_progress'])
 
@@ -83,6 +84,12 @@ export async function runCall(jobId: string, fallbackJob?: RunnableCallJob | nul
     isRecentlyAttempted(job.callAttemptedAt)
   ) {
     throw new Error('A call was just started for this job. Wait about 90 seconds, or use Retry to force a new call.')
+  }
+
+  // Validate caller ID before marking the job as dialing.
+  // Skip in test mode — no real call is placed.
+  if (!config.autoCallTestMode) {
+    await assertCallerIdUsable()
   }
 
   await updateCallJobIfPresent(jobId, {

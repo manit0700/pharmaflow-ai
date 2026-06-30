@@ -137,6 +137,12 @@ export interface HealthResponse {
     issues: string[]
     publicBaseUrl: string
   }
+  callerIdStatus?: {
+    usable: boolean
+    type: 'owned_number' | 'verified_caller_id' | 'not_found' | 'unknown'
+    number: string
+    message: string
+  } | null
 }
 
 export interface ScheduleRetryInput {

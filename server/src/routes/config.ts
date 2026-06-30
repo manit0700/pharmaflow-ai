@@ -1,8 +1,7 @@
 import { Router } from 'express'
 import { config, updateConfig } from '../config.js'
-import { getTwilioClient } from '../lib/twilioAuth.js'
 import { phoneProvider } from '../services/phoneProvider.js'
-import { normalizePhone } from '../services/safety.js'
+import { checkCallerIdStatus, invalidateCallerIdCache } from '../services/callerIdCheck.js'
 
 export const configRouter = Router()
 
@@ -33,93 +32,21 @@ export interface CallerIdStatusResponse {
 
 configRouter.get('/config/caller-id-status', async (req, res) => {
   const requestedNumber = typeof req.query.number === 'string' ? req.query.number : ''
-  const number = requestedNumber ? (normalizePhone(requestedNumber) ?? requestedNumber.trim()) : config.twilioPhoneNumber
   const provider = phoneProvider.displayName
   const carrier = phoneProvider.carrierName
 
-  if (!number) {
-    res.json({
-      number: '',
-      provider,
-      carrier,
-      usable: false,
-      type: 'not_found',
-      message: 'No outbound caller ID configured. Enter a phone number in settings.',
-    } satisfies CallerIdStatusResponse)
-    return
-  }
+  // bypassCache when the caller explicitly requests a specific number (Settings page "Check" button)
+  const bypassCache = Boolean(requestedNumber)
+  const result = await checkCallerIdStatus(requestedNumber || undefined, { bypassCache })
 
-  if (!number.startsWith('+')) {
-    res.json({
-      number,
-      provider,
-      carrier,
-      usable: false,
-      type: 'not_found',
-      message: 'Phone numbers must be in +1XXXXXXXXXX format before they can be used for live calls.',
-    } satisfies CallerIdStatusResponse)
-    return
-  }
-
-  const client = getTwilioClient()
-  if (!client) {
-    res.json({
-      number,
-      provider,
-      carrier,
-      usable: false,
-      type: 'unknown',
-      message: 'Calling service is not connected. Check that your credentials are configured.',
-    } satisfies CallerIdStatusResponse)
-    return
-  }
-
-  try {
-    const owned = await client.incomingPhoneNumbers.list({ phoneNumber: number, limit: 1 })
-    if (owned.length > 0) {
-      res.json({
-        number,
-        provider,
-        carrier,
-        usable: true,
-        type: 'owned_number',
-        message: 'This number is owned by your account and can be used for live calls.',
-      } satisfies CallerIdStatusResponse)
-      return
-    }
-
-    const verified = await client.outgoingCallerIds.list({ phoneNumber: number, limit: 1 })
-    if (verified.length > 0) {
-      res.json({
-        number,
-        provider,
-        carrier,
-        usable: true,
-        type: 'verified_caller_id',
-        message: 'This number is a verified caller ID and can be used for live calls.',
-      } satisfies CallerIdStatusResponse)
-      return
-    }
-
-    res.json({
-      number,
-      provider,
-      carrier,
-      usable: false,
-      type: 'not_found',
-      message:
-        'This number is not ready for outbound calls. To fix this, either buy it from your calling service account or add it as a verified caller ID.',
-    } satisfies CallerIdStatusResponse)
-  } catch {
-    res.json({
-      number,
-      provider,
-      carrier,
-      usable: false,
-      type: 'unknown',
-      message: 'Could not verify this number right now. The calling service may be temporarily unavailable.',
-    } satisfies CallerIdStatusResponse)
-  }
+  res.json({
+    number: result.number,
+    provider,
+    carrier,
+    usable: result.usable,
+    type: result.type,
+    message: result.message,
+  } satisfies CallerIdStatusResponse)
 })
 
 configRouter.patch('/config', (req, res) => {
@@ -133,6 +60,7 @@ configRouter.patch('/config', (req, res) => {
       res.status(400).json({ error: 'No valid fields provided' })
       return
     }
+    if ('twilioPhoneNumber' in patches) invalidateCallerIdCache()
     updateConfig(patches as Parameters<typeof updateConfig>[0])
     res.json({
       ok: true,

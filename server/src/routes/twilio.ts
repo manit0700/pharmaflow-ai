@@ -773,10 +773,25 @@ async function handleAiVoiceResponse(
 
   if (step === 'ai_greeting' || (step === 'greeting' && !speech && !digits)) {
     const greetingEventKey = callbackEventKey([twilioCallSid, callJobId, 'ai_greeting'])
+
+    // Twilio may retry the initial voice-response webhook on slow responses.
+    // If the greeting was already stored, serve a brief DOB re-prompt instead of
+    // replaying the full greeting — prevents the patient from hearing the intro twice.
+    if (transcriptHasEvent(job.transcriptJson, greetingEventKey)) {
+      res.type('text/xml').send(buildAiGatherTwiml({
+        callJobId,
+        reason,
+        spoken: 'Please say your date of birth, or press the month and day on your keypad.',
+        step: 'greeting',
+        state,
+      }))
+      return
+    }
+
     const script = getCallScript(reason)
     const spoken =
       fillTemplate(script.greeting, ctx) +
-      ' To verify your identity, you can say or type your date of birth.'
+      ' To verify your identity, please say your date of birth, or press the month and day on your keypad.'
     await updateCallJobIfPossible(callJobId, {
       transcriptJson: transcriptJsonWith(job.transcriptJson, {
         eventKey: greetingEventKey,
@@ -979,6 +994,22 @@ async function handleAiVoiceResponse(
       'We were unable to verify your identity. A pharmacy team member will follow up with you shortly.',
       'callback',
     ))
+    return
+  }
+
+  // If no speech and no digits at this point, re-prompt briefly rather than
+  // sending "(no speech detected)" to OpenAI, which wastes a turn and can confuse the AI.
+  if (!speech.trim() && !(digits ?? '').trim()) {
+    const reprompt = dobAlreadyVerified
+      ? 'I did not catch that. Could you say that again?'
+      : 'I did not hear you clearly. Please say your date of birth.'
+    res.type('text/xml').send(buildAiGatherTwiml({
+      callJobId,
+      reason,
+      spoken: reprompt,
+      step: dobAlreadyVerified ? 'ai' : 'greeting',
+      state,
+    }))
     return
   }
 

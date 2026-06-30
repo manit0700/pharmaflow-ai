@@ -82,6 +82,34 @@ export function CallStatusBanners({
         </Card>
       )}
 
+      {!health.testMode && health.callerIdStatus && !health.callerIdStatus.usable && health.liveCallReadiness?.ready && (
+        <Card className="border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/20">
+          <CardContent className="p-4 text-sm">
+            <strong>Outbound number not ready</strong> —{' '}
+            <code className="text-xs">{health.callerIdStatus.number || 'none'}</code> is not owned or
+            verified on this {carrierName} account. Live calls will be blocked until this is resolved.{' '}
+            <a
+              href="https://console.twilio.com/us1/develop/phone-numbers/manage/incoming"
+              className="text-primary underline underline-offset-2"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Buy a number
+            </a>{' '}
+            or{' '}
+            <a
+              href="https://console.twilio.com/us1/develop/phone-numbers/manage/verified"
+              className="text-primary underline underline-offset-2"
+              target="_blank"
+              rel="noreferrer"
+            >
+              add a verified caller ID
+            </a>{' '}
+            in the {carrierName} Console, then update Settings.
+          </CardContent>
+        </Card>
+      )}
+
       {!health.testMode && health.liveCallReadiness?.ready && (
         <Card
           className={
@@ -99,6 +127,9 @@ export function CallStatusBanners({
             )}
             {health.callMode === 'ai' && health.aiCallConfigured && (
               <span> · AI calls ({health.callAiModel ?? 'OpenAI'})</span>
+            )}
+            {health.callerIdStatus?.usable && (
+              <span className="text-green-700 dark:text-green-400"> · Caller ID verified</span>
             )}
             {providerAccount?.type === 'Trial' ? (
               <p className="text-muted-foreground">

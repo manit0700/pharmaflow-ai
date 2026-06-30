@@ -167,6 +167,7 @@ const EDITABLE_CALL_STATUSES = new Set([
   'escalated',
   'callback_requested',
   'voicemail',
+  'needs_review',
 ])
 
 callJobsRouter.patch('/call-jobs/:id', async (req, res) => {

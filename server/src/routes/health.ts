@@ -5,6 +5,7 @@ import { isPostgresDatabaseUrl, resolveDatabaseUrl } from '../lib/databaseUrl.js
 import { isAiCallConfigured } from '../services/callAi.js'
 import { getCallbackReadiness } from '../services/callbackUrls.js'
 import { phoneProvider } from '../services/phoneProvider.js'
+import { checkCallerIdStatus } from '../services/callerIdCheck.js'
 
 export const healthRouter = Router()
 
@@ -31,9 +32,11 @@ async function getDatabaseHealth() {
 
 healthRouter.get('/health', async (_req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
-  const [phoneProviderAccount, database] = await Promise.all([
+  const [phoneProviderAccount, database, callerIdStatus] = await Promise.all([
     phoneProvider.getAccountSummary(),
     getDatabaseHealth(),
+    // Cached (2-min TTL) — safe to call on every health poll without hammering Twilio
+    config.autoCallTestMode ? Promise.resolve(null) : checkCallerIdStatus().catch(() => null),
   ])
   const phoneProviderReadiness = phoneProvider.getReadiness()
 
@@ -72,5 +75,8 @@ healthRouter.get('/health', async (_req, res) => {
     publicBaseUrl: config.publicBaseUrl,
     port: config.port,
     serverBootedAt,
+    callerIdStatus: callerIdStatus
+      ? { usable: callerIdStatus.usable, type: callerIdStatus.type, number: callerIdStatus.number, message: callerIdStatus.message }
+      : null,
   })
 })

@@ -111,6 +111,13 @@ export function useCallOperations() {
       toast.error(health.liveCallReadiness?.issues.join(' ') ?? 'Live calling is not configured')
       return
     }
+    if (health?.ok && !health.testMode && health.callerIdStatus && !health.callerIdStatus.usable) {
+      toast.error(
+        `Caller ID ${health.callerIdStatus.number} is not ready: ${health.callerIdStatus.message}`,
+        { duration: 8000 },
+      )
+      return
+    }
     if (health?.ok && !health.testMode) {
       const provider = health.phoneProvider
       const providerAccount = provider?.account ?? health.twilioAccount
