@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Mic, Search } from 'lucide-react'
+import { CheckCircle2, Clock, MessageSquare, Mic, Phone, Search, ShieldCheck, XCircle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -11,6 +11,18 @@ import { useConversationList } from '@/hooks/useConversationList'
 import { formatDuration, formatTime } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
+
+const DETAIL_LABEL: Record<string, string> = {
+  medication: 'Medication',
+  prescriptions: 'Prescriptions',
+  patientResponse: 'Patient answer',
+  phone: 'Phone number',
+  callStatus: 'Call status',
+}
+
+function detailLabel(key: string): string {
+  return DETAIL_LABEL[key] ?? key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase()).trim()
+}
 
 const filters: {
   id: string
@@ -60,9 +72,7 @@ export function ConversationsPage() {
       <div className="space-y-4">
         <Skeleton className="h-8 w-64" />
         <div className="grid gap-3 sm:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-20" />
-          ))}
+          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20" />)}
         </div>
         <Skeleton className="h-96" />
       </div>
@@ -74,10 +84,11 @@ export function ConversationsPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Call history</h1>
         <p className="text-sm text-muted-foreground">
-          Real outbound calls from your queue — transcripts, patient answers, and call metadata
+          Outbound calls — transcripts, patient answers, and recordings
         </p>
       </div>
 
+      {/* Summary stats */}
       <div className="grid gap-3 sm:grid-cols-4">
         {[
           { label: 'Total calls', value: stats.total },
@@ -99,15 +110,15 @@ export function ConversationsPage() {
           <CardContent className="p-8 text-center text-sm text-muted-foreground space-y-2">
             <p>No outbound calls yet.</p>
             <p>
-              <Link to="/dashboard" className="text-primary underline">
-                Add patients and start calling
-              </Link>{' '}
+              <Link to="/dashboard" className="text-primary underline">Add patients and start calling</Link>{' '}
               to see history here.
             </p>
           </CardContent>
         </Card>
       ) : (
         <div className="flex flex-col gap-4 lg:flex-row lg:min-h-[calc(100vh-14rem)]">
+
+          {/* Left sidebar — call list */}
           <Card className="flex w-full flex-col lg:w-80 lg:shrink-0">
             <CardHeader className="pb-2">
               <div className="relative">
@@ -153,19 +164,20 @@ export function ConversationsPage() {
                   >
                     <div className="flex items-center justify-between gap-1">
                       <span className="font-medium text-sm">{c.patientFirstName}</span>
-                      <Mic className="h-3 w-3 text-primary shrink-0" />
+                      <ResolutionBadge status={c.resolutionStatus} />
                     </div>
-                    <p className="mt-0.5 text-[10px] text-muted-foreground capitalize">
-                      {c.workflowName}
-                    </p>
+                    <p className="mt-0.5 text-[10px] text-muted-foreground capitalize">{c.workflowName}</p>
+                    {c.extractedData.medication && (
+                      <p className="text-[10px] text-muted-foreground truncate">{c.extractedData.medication}</p>
+                    )}
                     <p className="mt-1 text-xs text-muted-foreground line-clamp-1">
                       {c.extractedData.patientResponse || c.messages[0]?.content || 'No transcript'}
                     </p>
-                    <div className="mt-2 flex items-center gap-1">
-                      <ResolutionBadge status={c.resolutionStatus} />
-                      <Badge variant="outline" className="text-[10px]">
-                        {formatDuration(c.durationSec)}
-                      </Badge>
+                    <div className="mt-1.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+                      <span className="flex items-center gap-0.5">
+                        <Clock className="h-3 w-3" />{formatDuration(c.durationSec)}
+                      </span>
+                      <span>{formatTime(c.startedAt)}</span>
                     </div>
                   </button>
                 ))
@@ -173,27 +185,76 @@ export function ConversationsPage() {
             </CardContent>
           </Card>
 
+          {/* Right panel — call detail */}
           {selected ? (
             <Card className="min-w-0 flex-1">
-              <CardHeader>
+              <CardHeader className="pb-3">
+                {/* Name + status */}
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <CardTitle>{selected.patientFirstName}</CardTitle>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {selected.workflowName} · {formatTime(selected.startedAt)}
-                    </p>
+                    <CardTitle className="text-lg">{selected.patientFirstName}</CardTitle>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                      {selected.extractedData.phone && (
+                        <span className="flex items-center gap-1">
+                          <Phone className="h-3 w-3" />{selected.extractedData.phone}
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />{formatDuration(selected.durationSec)}
+                      </span>
+                      <span>{formatTime(selected.startedAt)}</span>
+                    </div>
                   </div>
                   <ResolutionBadge status={selected.resolutionStatus} />
                 </div>
-                <div className="flex flex-wrap gap-2 mt-2">
+
+                {/* Medication + badges */}
+                <div className="flex flex-wrap items-center gap-2 mt-2">
                   <Badge variant="secondary" className="capitalize">
                     {selected.requestType.replace('_', ' ')}
                   </Badge>
+                  {selected.extractedData.prescriptions ? (
+                    <Badge variant="outline" className="font-normal">
+                      {selected.extractedData.prescriptions}
+                    </Badge>
+                  ) : selected.extractedData.medication ? (
+                    <Badge variant="outline" className="font-normal">
+                      {selected.extractedData.medication}
+                    </Badge>
+                  ) : null}
                   {selected.escalationReason && (
                     <Badge variant="warning">Follow-up: {selected.escalationReason}</Badge>
                   )}
                 </div>
+
+                {/* Identity + turns summary row */}
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <span className={cn(
+                    'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium',
+                    selected.extractedData.dobVerified === 'Verified'
+                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                      : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+                  )}>
+                    {selected.extractedData.dobVerified === 'Verified'
+                      ? <ShieldCheck className="h-3 w-3" />
+                      : <XCircle className="h-3 w-3" />}
+                    Identity {selected.extractedData.dobVerified}
+                  </span>
+                  {selected.extractedData.aiTurns && selected.extractedData.aiTurns !== '—' && (
+                    <span className="inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                      <MessageSquare className="h-3 w-3" />
+                      {selected.extractedData.aiTurns} AI turns
+                    </span>
+                  )}
+                  <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${selected.recording.audioProxyUrl ? 'border-green-200 bg-green-50 text-green-700' : 'text-muted-foreground'}`}>
+                    <Mic className="h-3 w-3" />
+                    {selected.recording.audioProxyUrl
+                      ? `Recording saved${selected.recording.realDurationSec != null ? ` · ${Math.floor(selected.recording.realDurationSec / 60)}:${String(selected.recording.realDurationSec % 60).padStart(2, '0')}` : ''}`
+                      : 'No recording yet'}
+                  </span>
+                </div>
               </CardHeader>
+
               <CardContent className="space-y-4">
                 <CallRecordingPlayer
                   recording={selected.recording}
@@ -203,44 +264,72 @@ export function ConversationsPage() {
 
                 <Tabs defaultValue="transcript">
                   <TabsList>
-                    <TabsTrigger value="details">Details</TabsTrigger>
                     <TabsTrigger value="transcript">Transcript</TabsTrigger>
+                    <TabsTrigger value="details">Details</TabsTrigger>
                   </TabsList>
-                  <TabsContent value="details" className="text-sm space-y-2">
-                    <dl className="grid gap-2">
-                      {Object.entries(selected.extractedData).map(([k, v]) => (
-                        <div key={k} className="flex justify-between border-b border-border py-2">
-                          <dt className="text-muted-foreground capitalize">{k}</dt>
-                          <dd className="font-medium text-right max-w-[60%] truncate">{v}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                    <p className="text-xs text-muted-foreground pt-2">
-                      Twilio recording playback requires enabling call recording on your Twilio account.
-                      Transcript replay uses browser speech until a recording URL is wired.
-                    </p>
-                  </TabsContent>
-                  <TabsContent value="transcript" className="space-y-3 max-h-64 overflow-auto">
+
+                  {/* Transcript tab */}
+                  <TabsContent value="transcript" className="space-y-2 max-h-96 overflow-auto pt-2">
                     {selected.messages.length === 0 ? (
                       <p className="text-sm text-muted-foreground">No transcript stored for this call.</p>
-                    ) : (
-                      selected.messages.map((m) => (
-                        <div
-                          key={m.id}
-                          className={cn(
-                            'rounded-lg px-3 py-2 text-sm max-w-[85%]',
-                            m.role === 'patient' && 'bg-muted ml-0',
-                            m.role === 'ai' && 'bg-primary/10 ml-auto',
-                            m.role === 'staff' && 'bg-warning/10 border border-warning/30',
-                          )}
-                        >
-                          <p className="text-[10px] font-semibold uppercase text-muted-foreground mb-1">
-                            {m.role}
-                          </p>
-                          {m.content}
-                        </div>
-                      ))
-                    )}
+                    ) : (() => {
+                      let aiTurnCount = 0
+                      return selected.messages.map((m) => {
+                        if (m.role === 'ai') aiTurnCount++
+                        const currentAiTurn = aiTurnCount
+                        return (
+                          <div key={m.id} className="flex flex-col gap-0.5">
+                            {m.role === 'ai' && (
+                              <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground text-right pr-1">
+                                Pharmacy · turn {currentAiTurn}
+                              </p>
+                            )}
+                            {m.role === 'patient' && (
+                              <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground pl-1">
+                                Patient
+                              </p>
+                            )}
+                            {m.role === 'staff' && (
+                              <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground pl-1">
+                                Staff note
+                              </p>
+                            )}
+                            <div className={cn(
+                              'rounded-xl px-3 py-2 text-sm max-w-[85%] leading-relaxed',
+                              m.role === 'patient' && 'bg-muted ml-0',
+                              m.role === 'ai' && 'bg-primary/10 ml-auto text-right',
+                              m.role === 'staff' && 'bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 ml-0',
+                            )}>
+                              {m.content}
+                            </div>
+                          </div>
+                        )
+                      })
+                    })()}
+                  </TabsContent>
+
+                  {/* Details tab */}
+                  <TabsContent value="details" className="pt-2">
+                    <dl className="divide-y divide-border text-sm">
+                      {Object.entries(selected.extractedData)
+                        .filter(([k]) => !['aiTurns', 'dobVerified'].includes(k))
+                        .map(([k, v]) => (
+                          <div key={k} className="flex justify-between gap-4 py-2.5">
+                            <dt className="text-muted-foreground shrink-0">{detailLabel(k)}</dt>
+                            <dd className={cn(
+                              'font-medium text-right break-words',
+                              k === 'patientResponse' && v && 'text-primary',
+                              k === 'callStatus' && 'capitalize',
+                            )}>
+                              {k === 'patientResponse' && v
+                                ? <span className="inline-flex items-center gap-1">
+                                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />{v}
+                                  </span>
+                                : v || <span className="text-muted-foreground italic font-normal">—</span>}
+                            </dd>
+                          </div>
+                        ))}
+                    </dl>
                   </TabsContent>
                 </Tabs>
               </CardContent>

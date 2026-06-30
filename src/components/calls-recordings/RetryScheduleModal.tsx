@@ -42,18 +42,23 @@ export function RetryScheduleModal({
 
   useEffect(() => {
     if (!open || !job) return
-    setScheduledFor(toLocalInputValue(job.retryRecommendation?.recommendedRetryAt))
-    setReason(job.retryRecommendation?.reason ?? '')
-    setCreateFollowUpTask(false)
-    setPlaceImmediately(false)
+    const id = window.setTimeout(() => {
+      setScheduledFor(toLocalInputValue(job.retryRecommendation?.recommendedRetryAt))
+      setReason(job.retryRecommendation?.reason ?? '')
+      setCreateFollowUpTask(false)
+      setPlaceImmediately(false)
+    }, 0)
+    return () => window.clearTimeout(id)
   }, [open, job])
 
   if (!open || !job) return null
 
   const liveBlocked = Boolean(health?.ok && !health.testMode && !health.liveCallReadiness?.ready)
+  const provider = health?.phoneProvider
+  const carrierName = provider?.carrierName ?? 'Twilio'
   const trialNote =
-    health?.twilioAccount?.type === 'Trial'
-      ? ' Twilio Trial accounts can only call verified destination numbers.'
+    (provider?.account ?? health?.twilioAccount)?.type === 'Trial'
+      ? ` ${carrierName} Trial accounts can only call verified destination numbers.`
       : ''
 
   return (
@@ -113,8 +118,8 @@ export function RetryScheduleModal({
               onChange={(e) => setPlaceImmediately(e.target.checked)}
             />
             <span>
-              Place call now (requires live Twilio)
-              {liveBlocked && ' — Twilio is not ready for live calls.'}
+              Place call now (requires live calling)
+              {liveBlocked && ' — live calling is not ready.'}
               {trialNote}
             </span>
           </label>

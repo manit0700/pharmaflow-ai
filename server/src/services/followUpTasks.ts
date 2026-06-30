@@ -298,10 +298,10 @@ export function resolveOutcomeFromPatientAction(params: {
 }
 
 async function findExistingOpenTask(callJobId: string, taskType: string) {
+  void taskType
   return prisma.staffTask.findFirst({
     where: {
       callJobId,
-      taskType,
       status: { in: OPEN_TASK_STATUSES },
     },
     orderBy: { createdAt: 'desc' },

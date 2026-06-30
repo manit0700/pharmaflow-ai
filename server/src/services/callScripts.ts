@@ -1,9 +1,17 @@
 import type { CallReason } from '../config.js'
 
+export interface Prescription {
+  name: string
+  cost: number
+}
+
 export interface ScriptContext {
   pharmacyName: string
   patientName: string
+  patientDob?: string
   medicationName: string
+  prescriptions?: Prescription[]
+  prescriptionCost?: number
 }
 
 export type ResponseAction = 'complete' | 'transfer' | 'callback'
@@ -36,17 +44,22 @@ export const CALL_SCRIPT_CATALOG: Record<CallReason, CallScript> = {
     greeting: 'Hello, this is {pharmacy} calling with a refill reminder for {patient}.',
     dobPrompt:
       'For your privacy, please enter the four digits of your date of birth, month and day. For example, March 5th is 0 3 0 5.',
-    mainMenu: (ctx) =>
-      `Thank you. We are reaching out about a refill for ${ctx.medicationName || 'your medication'} that may be due. ` +
-      'Press 1 if you would like us to process your refill today. ' +
-      'Press 2 if you are not ready yet. ' +
-      'Press 3 if you already picked up or do not need a refill. ' +
-      'Press 0 to speak with our pharmacy team.',
+    mainMenu: (ctx) => {
+      const names = rxListText(ctx)
+      const costLine = ctx.prescriptionCost
+        ? ` Your total amount due is $${ctx.prescriptionCost.toFixed(2)}.`
+        : ''
+      return `Thank you. We are reaching out about a refill for ${names} that may be due.${costLine} ` +
+        'Press 1 if you would like us to process your refill today. ' +
+        'Press 2 if you are not ready yet. ' +
+        'Press 3 if you already picked up or do not need a refill. ' +
+        'Press 0 to speak with our pharmacy team.'
+    },
     closing: (opt) => {
-      if (opt.digit === '1') return 'Great, we will process your refill and notify you when it is ready. Thank you, goodbye.'
-      if (opt.digit === '2') return 'No problem. We will follow up again later. Thank you, goodbye.'
-      if (opt.digit === '3') return 'Thank you for letting us know. Goodbye.'
-      return 'Thank you. Goodbye.'
+      if (opt.digit === '1') return 'Great, we will process your refill and notify you when it is ready. Thank you.'
+      if (opt.digit === '2') return 'No problem. We will follow up again later. Thank you.'
+      if (opt.digit === '3') return 'Thank you for letting us know.'
+      return 'Thank you.'
     },
     voicemail: DEFAULT_VOICEMAIL,
     options: [
@@ -63,17 +76,22 @@ export const CALL_SCRIPT_CATALOG: Record<CallReason, CallScript> = {
     greeting: 'Hello, this is {pharmacy} calling with a pickup reminder for {patient}.',
     dobPrompt:
       'For your privacy, please enter the four digits of your date of birth, month and day.',
-    mainMenu: (ctx) =>
-      `Thank you. Your prescription for ${ctx.medicationName || 'your medication'} is ready for pickup at the pharmacy. ` +
-      'Press 1 if you plan to pick it up today. ' +
-      'Press 2 if you need more time. ' +
-      'Press 3 if you already picked it up. ' +
-      'Press 0 to speak with our pharmacy team.',
+    mainMenu: (ctx) => {
+      const names = rxListText(ctx)
+      const costLine = ctx.prescriptionCost
+        ? ` Your total amount due is $${ctx.prescriptionCost.toFixed(2)}.`
+        : ''
+      return `Thank you. Your prescription for ${names} is ready for pickup at the pharmacy.${costLine} ` +
+        'Press 1 if you plan to pick it up today. ' +
+        'Press 2 if you need more time. ' +
+        'Press 3 if you already picked it up. ' +
+        'Press 0 to speak with our pharmacy team.'
+    },
     closing: (opt) => {
-      if (opt.digit === '1') return 'Wonderful, we will have it ready for you. Thank you, goodbye.'
-      if (opt.digit === '2') return 'Understood. We will hold your prescription. Thank you, goodbye.'
-      if (opt.digit === '3') return 'Thank you for confirming. Goodbye.'
-      return 'Thank you. Goodbye.'
+      if (opt.digit === '1') return 'Wonderful, we will have it ready for you. Thank you.'
+      if (opt.digit === '2') return 'Understood. We will hold your prescription. Thank you.'
+      if (opt.digit === '3') return 'Thank you for confirming.'
+      return 'Thank you.'
     },
     voicemail: DEFAULT_VOICEMAIL,
     options: [
@@ -90,17 +108,17 @@ export const CALL_SCRIPT_CATALOG: Record<CallReason, CallScript> = {
     greeting: 'Hello, this is {pharmacy} calling with a delivery update for {patient}.',
     dobPrompt:
       'For your privacy, please enter the four digits of your date of birth, month and day.',
-    mainMenu: (_ctx) =>
+    mainMenu: () =>
       'We have an update about your prescription delivery. ' +
       'Press 1 if you will be available to receive delivery today. ' +
       'Press 2 if you need to reschedule delivery. ' +
       'Press 3 if you already received your delivery. ' +
       'Press 0 to speak with our pharmacy team.',
     closing: (opt) => {
-      if (opt.digit === '1') return 'Thank you. We will proceed with delivery as planned. Goodbye.'
-      if (opt.digit === '2') return 'We will have our team contact you to reschedule. Goodbye.'
-      if (opt.digit === '3') return 'Thank you for confirming. Goodbye.'
-      return 'Thank you. Goodbye.'
+      if (opt.digit === '1') return 'Thank you. We will proceed with delivery as planned.'
+      if (opt.digit === '2') return 'We will have our team contact you to reschedule.'
+      if (opt.digit === '3') return 'Thank you for confirming.'
+      return 'Thank you.'
     },
     voicemail: DEFAULT_VOICEMAIL,
     options: [
@@ -117,15 +135,15 @@ export const CALL_SCRIPT_CATALOG: Record<CallReason, CallScript> = {
     greeting: 'Hello, this is {pharmacy} calling about an insurance update for {patient}.',
     dobPrompt:
       'For your privacy, please enter the four digits of your date of birth, month and day.',
-    mainMenu: (_ctx) =>
+    mainMenu: () =>
       'We need to discuss an insurance-related update with our pharmacy team. ' +
       'Press 1 if you are available to talk now. ' +
       'Press 2 to request a callback from our staff. ' +
       'Press 0 to connect with a team member now.',
     closing: (opt) => {
-      if (opt.digit === '1') return 'Please hold while we connect you. Goodbye.'
-      if (opt.digit === '2') return 'Our team will call you back shortly. Thank you, goodbye.'
-      return 'Thank you. Goodbye.'
+      if (opt.digit === '1') return 'Please hold while we connect you.'
+      if (opt.digit === '2') return 'Our team will call you back shortly. Thank you.'
+      return 'Thank you.'
     },
     voicemail: DEFAULT_VOICEMAIL,
     options: [
@@ -141,17 +159,17 @@ export const CALL_SCRIPT_CATALOG: Record<CallReason, CallScript> = {
     greeting: 'Hello, this is {pharmacy} following up on a prescription matter for {patient}.',
     dobPrompt:
       'For your privacy, please enter the four digits of your date of birth, month and day.',
-    mainMenu: (_ctx) =>
+    mainMenu: () =>
       'We are following up on a prescription matter. ' +
       'Press 1 if this is a good time to talk. ' +
       'Press 2 if you would like us to call back later. ' +
       'Press 3 if your question is already resolved. ' +
       'Press 0 to speak with our pharmacy team.',
     closing: (opt) => {
-      if (opt.digit === '1') return 'Thank you. A team member will assist you shortly. Goodbye.'
-      if (opt.digit === '2') return 'We will call you back at a better time. Thank you, goodbye.'
-      if (opt.digit === '3') return 'Glad to hear it is resolved. Thank you, goodbye.'
-      return 'Thank you. Goodbye.'
+      if (opt.digit === '1') return 'Thank you. A team member will assist you shortly.'
+      if (opt.digit === '2') return 'We will call you back at a better time. Thank you.'
+      if (opt.digit === '3') return 'Glad to hear it is resolved. Thank you.'
+      return 'Thank you.'
     },
     voicemail: DEFAULT_VOICEMAIL,
     options: [
@@ -165,6 +183,15 @@ export const CALL_SCRIPT_CATALOG: Record<CallReason, CallScript> = {
 
 export function getCallScript(reason: CallReason): CallScript {
   return CALL_SCRIPT_CATALOG[reason] ?? CALL_SCRIPT_CATALOG.general_callback
+}
+
+export function rxListText(ctx: ScriptContext): string {
+  if (ctx.prescriptions && ctx.prescriptions.length > 1) {
+    const names = ctx.prescriptions.map((p) => p.name)
+    const last = names.pop()!
+    return names.length === 1 ? `${names[0]} and ${last}` : `${names.join(', ')}, and ${last}`
+  }
+  return ctx.medicationName || 'your medication'
 }
 
 export function fillTemplate(text: string, ctx: ScriptContext): string {

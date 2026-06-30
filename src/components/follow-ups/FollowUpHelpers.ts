@@ -143,7 +143,7 @@ function sortTasks(tasks: FollowUpTask[], sort: SortOption): FollowUpTask[] {
 }
 
 export function filterAndSortTasks(tasks: FollowUpTask[], filters: FollowUpFilters, now = new Date()): FollowUpTask[] {
-  let result = tasks.filter((task) => {
+  const result = tasks.filter((task) => {
     if (!matchesPriorityTab(task, filters.priorityTab)) return false
     if (filters.status !== 'all' && task.status !== filters.status) return false
     if (filters.priority !== 'all' && task.priority !== filters.priority) return false

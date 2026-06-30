@@ -17,6 +17,8 @@ model CallJob {
   medicationName      String
   callReason          String
   notes               String?
+  prescriptionCost    Float?
+  prescriptionsJson   String?
   validationStatus    String      @default("pending")
   validationError     String?
   callStatus          String      @default("queued")
@@ -40,6 +42,9 @@ model CallJob {
   staffFollowUpNeeded Boolean     @default(false)
   followUpReason      String?
   smsStatus           String      @default("none")
+  recordingUrl        String?
+  recordingSid        String?
+  recordingDuration   Int?
   parentCallJobId     String?
   retryOfCallJobId    String?
   retryAttempt        Int         @default(0)

@@ -1,6 +1,8 @@
 # PharmaFlow AI
 
-Production-style **demo** SaaS UI for pharmacy AI workflow operations — visual automation (n8n-inspired), dashboards, conversations, integrations, compliance, and analytics. **Mock data only**; no backend or authentication.
+Pharmacy operations platform for outbound patient calls, AI-assisted conversations, call outcomes, staff follow-ups, analytics, integrations, and compliance-style monitoring.
+
+The UI still contains demo/presentation surfaces, but the local app also includes a real Express API, Prisma persistence, Excel import/export, Twilio outbound calling, AI call mode, follow-up task creation, audit events, and analytics endpoints. It is not HIPAA-certified and must use fake patient data in development.
 
 ## Setup
 
@@ -28,6 +30,54 @@ API: http://localhost:4000/api/health
 Real mode UI: http://localhost:5173/calls?mode=real
 
 Open the URL shown in the terminal (typically `http://localhost:5173`).
+
+### Local AI outbound call setup
+
+1. Start the local app:
+
+```bash
+cd pharmaflow-ai
+npm run dev:pc
+```
+
+2. In another terminal, expose the local API to Twilio:
+
+```bash
+ngrok http 4002
+```
+
+3. Copy the active `https://...ngrok...` forwarding URL into ignored local config:
+
+```json
+{
+  "DATABASE_URL": "postgresql://USER:PASSWORD@HOST:5432/DATABASE",
+  "PUBLIC_BASE_URL": "https://YOUR-NGROK-HOST"
+}
+```
+
+Use `server/local.config.json` or environment variables for local development. The current Prisma schema requires a `postgres://` or `postgresql://` database URL; SQLite `file:` URLs will run in stateless fallback and will not persist calls, transcripts, tasks, or audit events. Do not commit database URLs, ngrok URLs, or secrets.
+
+4. Restart `npm run dev:pc` after changing `PUBLIC_BASE_URL`.
+
+5. Verify callback readiness:
+
+```bash
+curl http://localhost:4002/api/health
+```
+
+The health response should show `callMode: "ai"`, `testMode: false`, `liveCallReadiness.ready: true`, and `callbacks.ready: true`.
+
+6. Create a fake patient call job from the dashboard using a Twilio-verified destination number. Twilio trial accounts can only call verified numbers.
+
+Troubleshooting:
+
+- Call starts but dashboard does not update: the ngrok URL likely changed or `PUBLIC_BASE_URL` still points to production.
+- Twilio callback returns 404: verify `{PUBLIC_BASE_URL}/api/twilio/voice-response` and `{PUBLIC_BASE_URL}/api/twilio/status` are reachable.
+- Speech callback does not fire: confirm the call is in AI mode and the voice response route is using the current ngrok URL.
+- Transcript remains empty: check API logs for `twilio_callback` diagnostics and verify callbacks are reaching the local API.
+- Call is stuck in ringing/in-progress: wait for the final Twilio status callback, then refresh `/dashboard` or `/calls`.
+- Twilio trial call fails: verify the destination number in Twilio Console or set `AUTO_CALL_TEST_MODE=true` for simulation.
+- Production URL receives local callbacks: update `PUBLIC_BASE_URL` to the current ngrok URL and restart the API.
 
 ### Live demo (presentation mode)
 

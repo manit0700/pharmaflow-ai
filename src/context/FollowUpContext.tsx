@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import {
   createContext,
   useCallback,
@@ -63,9 +64,12 @@ export function FollowUpProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    void refresh()
-    const id = setInterval(() => void refresh(), 15000)
-    return () => clearInterval(id)
+    const timeoutId = window.setTimeout(() => void refresh(), 0)
+    const id = setInterval(() => void refresh(), 5000)
+    return () => {
+      window.clearTimeout(timeoutId)
+      clearInterval(id)
+    }
   }, [refresh])
 
   const applyTaskUpdate = useCallback(
@@ -85,7 +89,7 @@ export function FollowUpProvider({ children }: { children: ReactNode }) {
         setSavingTaskId(null)
       }
     },
-    [dataSource],
+    [],
   )
 
   const persistPatch = useCallback(

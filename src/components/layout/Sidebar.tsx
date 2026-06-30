@@ -8,17 +8,21 @@ import {
   BarChart3,
   Activity,
   Phone,
+  Settings,
+  Users,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const nav = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/patients', icon: Users, label: 'Patients' },
   { to: '/calls', icon: Phone, label: 'Call Recordings' },
   { to: '/workflows', icon: GitBranch, label: 'Call flow' },
   { to: '/conversations', icon: MessageSquare, label: 'Call history' },
   { to: '/integrations', icon: Plug, label: 'Integrations' },
   { to: '/compliance', icon: Shield, label: 'Audit log' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
+  { to: '/settings', icon: Settings, label: 'Settings' },
 ]
 
 export function Sidebar() {
@@ -55,7 +59,7 @@ export function Sidebar() {
       </nav>
       <div className="border-t border-border p-4">
         <p className="text-[10px] leading-relaxed text-muted-foreground">
-          Live on your PC API. Configure Twilio in server/local.config.json.
+          Live on your PC API. Change phone numbers in Settings.
         </p>
       </div>
     </aside>

@@ -1,18 +1,21 @@
 import { Router } from 'express'
 import { prisma } from '../lib/prisma.js'
+import { config } from '../config.js'
 import { buildExportWorkbook, validateCallInput } from '../services/excel.js'
-import { getCallScript } from '../services/callScripts.js'
-import { buildAiSummary } from '../services/script.js'
-import { needsStaffFollowUp } from '../services/safety.js'
-import { startOutboundCall } from '../services/twilio.js'
-import { config, type CallReason } from '../config.js'
+import { runCall as runCallWithGuards, type RunnableCallJob } from '../services/callExecution.js'
+import { canTransitionCallStatus } from '../services/callStatusTransitions.js'
 
 export const callJobsRouter = Router()
 
 callJobsRouter.get('/call-jobs', async (_req, res) => {
   try {
     const jobs = await prisma.callJob.findMany({ orderBy: { createdAt: 'desc' } })
-    res.json(jobs)
+    res.json(jobs.map((job) => ({
+      ...job,
+      recordingUrl: job.recordingUrl ?? null,
+      recordingSid: job.recordingSid ?? null,
+      recordingDuration: job.recordingDuration ?? null,
+    })))
   } catch {
     res.json([])
   }
@@ -21,6 +24,7 @@ callJobsRouter.get('/call-jobs', async (_req, res) => {
 callJobsRouter.post('/call-jobs', async (req, res) => {
   try {
     const body = req.body as Record<string, unknown>
+    const rawCost = body.prescriptionCost != null ? Number(body.prescriptionCost) : undefined
     const row = validateCallInput({
       patientName: String(body.patientName ?? body.patient_name ?? ''),
       phoneNumber: String(body.phoneNumber ?? body.phone_number ?? ''),
@@ -28,6 +32,8 @@ callJobsRouter.post('/call-jobs', async (req, res) => {
       medicationName: String(body.medicationName ?? body.medication_name ?? ''),
       callReason: String(body.callReason ?? body.call_reason ?? 'general_callback'),
       notes: body.notes != null ? String(body.notes) : null,
+      prescriptionCost: rawCost != null && !Number.isNaN(rawCost) ? rawCost : null,
+      prescriptionsJson: body.prescriptionsJson != null ? String(body.prescriptionsJson) : null,
     })
 
     const data = {
@@ -37,6 +43,8 @@ callJobsRouter.post('/call-jobs', async (req, res) => {
       medicationName: row.medicationName,
       callReason: row.callReason,
       notes: row.notes,
+      prescriptionCost: row.prescriptionCost,
+      prescriptionsJson: row.prescriptionsJson,
       validationStatus: row.validationStatus,
       validationError: row.validationError,
       callStatus: row.validationStatus === 'valid' ? 'queued' : 'invalid',
@@ -77,6 +85,67 @@ callJobsRouter.get('/call-jobs/export', async (_req, res) => {
   res.send(buffer)
 })
 
+callJobsRouter.post('/call-jobs/schedule-queued', async (req, res) => {
+  try {
+    const body = req.body as Record<string, unknown>
+    const scheduledForRaw = String(body.scheduledFor ?? '')
+    const scheduledFor = new Date(scheduledForRaw)
+    if (!scheduledForRaw || Number.isNaN(scheduledFor.getTime())) {
+      res.status(400).json({ error: 'scheduledFor must be a valid ISO date.' })
+      return
+    }
+    const requestedIds = Array.isArray(body.callJobIds)
+      ? body.callJobIds.map((id) => String(id)).filter(Boolean)
+      : []
+
+    const eligibleJobs = await prisma.callJob.findMany({
+      where: {
+        validationStatus: 'valid',
+        callStatus: 'queued',
+        twilioCallSid: null,
+        ...(requestedIds.length > 0 ? { id: { in: requestedIds } } : {}),
+      },
+      select: { id: true },
+    })
+    const ids = eligibleJobs.map((job) => job.id)
+    if (ids.length === 0) {
+      res.json({ scheduledFor: scheduledFor.toISOString(), count: 0, jobs: [] })
+      return
+    }
+
+    await prisma.callJob.updateMany({
+      where: { id: { in: ids } },
+      data: {
+        callStatus: 'scheduled',
+        scheduledFor,
+        retryStatus: 'scheduled',
+        retryReason: 'Batch scheduled from dashboard',
+      },
+    })
+
+    await prisma.auditEvent
+      .create({
+        data: {
+          entityType: 'call_job',
+          entityId: 'batch',
+          action: 'batch_calls_scheduled',
+          actor: 'dashboard',
+          message: `${ids.length} queued call job${ids.length === 1 ? '' : 's'} scheduled from dashboard.`,
+          metadataJson: JSON.stringify({ scheduledFor: scheduledFor.toISOString(), count: ids.length }),
+        },
+      })
+      .catch(() => null)
+
+    const jobs = await prisma.callJob.findMany({
+      where: { id: { in: ids } },
+      orderBy: { createdAt: 'desc' },
+    })
+    res.json({ scheduledFor: scheduledFor.toISOString(), count: jobs.length, jobs })
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Schedule queued calls failed' })
+  }
+})
+
 callJobsRouter.get('/call-jobs/:id', async (req, res) => {
   const job = await prisma.callJob.findUnique({
     where: { id: req.params.id },
@@ -112,19 +181,52 @@ callJobsRouter.patch('/call-jobs/:id', async (req, res) => {
       return
     }
 
+    // Validate transition (manual_update is always allowed; guard is wired for future constraints)
+    if (status) {
+      const current = await prisma.callJob.findUnique({ where: { id: req.params.id }, select: { callStatus: true } })
+      if (!current) { res.status(404).json({ error: 'Call job not found' }); return }
+      const transition = canTransitionCallStatus(current.callStatus, status, 'manual_update')
+      if (!transition.allowed) {
+        res.status(409).json({ error: transition.reason ?? 'Status transition not allowed' })
+        return
+      }
+    }
+
     const data: Parameters<typeof prisma.callJob.update>[0]['data'] = {}
     if (status) data.callStatus = status
     if (notes !== undefined) data.notes = notes || null
     if (followUpReason !== undefined) data.followUpReason = followUpReason || null
-    if (status === 'completed') data.callCompletedAt = new Date()
-    if (status === 'failed' || status === 'no_answer' || status === 'escalated' || status === 'callback_requested') {
-      data.staffFollowUpNeeded = true
-      if (!data.followUpReason) data.followUpReason = `Updated status to ${status}`
+
+    if (status === 'completed') {
+      data.callCompletedAt = new Date()
+      data.resolutionStatus = 'resolved'
+      data.staffFollowUpNeeded = false
     }
-    if (status === 'queued') {
+    if (status === 'escalated') {
+      data.resolutionStatus = 'escalated'
+      data.staffFollowUpNeeded = true
+      if (!followUpReason) data.followUpReason = 'Manually escalated by staff'
+    }
+    if (status === 'callback_requested') {
+      data.resolutionStatus = 'escalated'
+      data.staffFollowUpNeeded = true
+      if (!followUpReason) data.followUpReason = 'Callback requested'
+    }
+    if (status === 'failed' || status === 'no_answer') {
+      data.resolutionStatus = 'pending'
+      data.staffFollowUpNeeded = true
+      if (!followUpReason) data.followUpReason = `Call ${status.replace(/_/g, ' ')} — staff review needed`
+    }
+    if (status === 'voicemail') {
+      data.resolutionStatus = 'pending'
+      data.staffFollowUpNeeded = true
+      if (!followUpReason) data.followUpReason = 'Left voicemail — awaiting callback'
+    }
+    if (status === 'queued' || status === 'in_progress') {
       data.staffFollowUpNeeded = false
       data.followUpReason = null
       data.callCompletedAt = null
+      data.resolutionStatus = null
     }
 
     const job = await prisma.callJob.update({ where: { id: req.params.id }, data })
@@ -134,23 +236,25 @@ callJobsRouter.patch('/call-jobs/:id', async (req, res) => {
   }
 })
 
-const ACTIVE_CALL_STATUSES = new Set(['dialing', 'queued_live', 'ringing', 'in_progress'])
+callJobsRouter.delete('/call-jobs/:id', async (req, res) => {
+  try {
+    const id = req.params.id
+    const tasks = await prisma.staffTask.findMany({ where: { callJobId: id }, select: { id: true } })
+    const taskIds = tasks.map((task) => task.id)
+    if (taskIds.length > 0) {
+      await prisma.taskActivity.deleteMany({ where: { taskId: { in: taskIds } } })
+    }
+    await prisma.callEvent.deleteMany({ where: { callJobId: id } })
+    await prisma.staffTask.deleteMany({ where: { callJobId: id } })
+    await prisma.callJob.delete({ where: { id } })
+    res.status(204).end()
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Delete failed' })
+  }
+})
 
-type RunnableCallJob = {
-  id: string
-  patientName: string
-  phoneNumber: string
-  dob: string
-  medicationName: string
-  callReason: string
-  validationStatus: string
-  callStatus: string
-  twilioCallSid: string | null
-  callAttemptedAt?: Date | string | null
-}
-
-function fallbackJobFromBody(jobId: string, body: Record<string, unknown>): RunnableCallJob | null {
-  const raw = body.job
+function fallbackJobFromBody(jobId: string, body?: Record<string, unknown>): RunnableCallJob | null {
+  const raw = body?.job
   if (!raw || typeof raw !== 'object') return null
   const job = raw as Record<string, unknown>
   return {
@@ -164,146 +268,12 @@ function fallbackJobFromBody(jobId: string, body: Record<string, unknown>): Runn
     callStatus: String(job.callStatus ?? 'queued'),
     twilioCallSid: job.twilioCallSid ? String(job.twilioCallSid) : null,
     callAttemptedAt: job.callAttemptedAt ? String(job.callAttemptedAt) : null,
+    prescriptionCost:
+      job.prescriptionCost != null && !Number.isNaN(Number(job.prescriptionCost))
+        ? Number(job.prescriptionCost)
+        : null,
+    prescriptionsJson: job.prescriptionsJson ? String(job.prescriptionsJson) : null,
   }
-}
-
-async function updateCallJobIfPresent(jobId: string, data: Parameters<typeof prisma.callJob.update>[0]['data']) {
-  try {
-    await prisma.callJob.update({ where: { id: jobId }, data })
-  } catch {
-    // Vercel demo SQLite can lose rows between serverless invocations; the live Twilio call can still proceed.
-  }
-}
-
-async function createCallEventIfPossible(data: Parameters<typeof prisma.callEvent.create>[0]['data']) {
-  try {
-    await prisma.callEvent.create({ data })
-  } catch {
-    // Non-durable Vercel demo DB fallback.
-  }
-}
-
-async function createStaffTaskIfPossible(data: Parameters<typeof prisma.staffTask.create>[0]['data']) {
-  try {
-    await prisma.staffTask.create({ data })
-  } catch {
-    // Non-durable Vercel demo DB fallback.
-  }
-}
-
-function isRecentlyAttempted(value: Date | string | null | undefined): boolean {
-  if (!value) return false
-  const attemptedAt = new Date(value).getTime()
-  if (Number.isNaN(attemptedAt)) return false
-  return Date.now() - attemptedAt < 90_000
-}
-
-async function runCall(jobId: string, fallbackJob?: RunnableCallJob | null, options: { force?: boolean } = {}) {
-  const job = (await prisma.callJob.findUnique({ where: { id: jobId } }).catch(() => null)) ?? fallbackJob
-  if (!job) throw new Error('Call job not found')
-  if (job.validationStatus !== 'valid') throw new Error('Job failed validation')
-  if (!options.force && job.twilioCallSid && ACTIVE_CALL_STATUSES.has(job.callStatus) && isRecentlyAttempted(job.callAttemptedAt)) {
-    throw new Error('A call was just started for this job. Wait about 90 seconds, or use Retry to force a new call.')
-  }
-
-  await updateCallJobIfPresent(jobId, {
-    callStatus: config.autoCallTestMode ? 'simulating' : 'dialing',
-    callAttemptedAt: new Date(),
-    errorMessage: null,
-  })
-
-  try {
-    const result = config.autoCallTestMode
-      ? { testMode: true as const, sid: `TEST_${job.id}_${Date.now()}` }
-        : await startOutboundCall({
-            to: job.phoneNumber,
-            callJobId: job.id,
-            callReason: job.callReason as CallReason,
-            patientName: job.patientName,
-            dob: job.dob,
-            medicationName: job.medicationName,
-          })
-
-    const isTest = 'testMode' in result && result.testMode
-    const sid = result.sid
-
-    const testResponse =
-      config.callMode === 'ai'
-        ? 'Test mode — AI call simulated'
-        : (getCallScript(job.callReason as CallReason).options[0]?.patientResponse ?? 'Test mode simulation')
-    const aiSummary = isTest ? buildAiSummary(job.callReason as CallReason, testResponse) : null
-    const updated = {
-      ...job,
-      callStatus: isTest ? 'completed' : 'queued_live',
-      twilioCallSid: sid,
-      callAttemptedAt: new Date(),
-      callCompletedAt: isTest ? new Date() : null,
-      callDuration: isTest ? 45 : null,
-      patientResponse: isTest ? testResponse : null,
-      aiSummary,
-      errorMessage: null,
-    }
-
-    await updateCallJobIfPresent(jobId, {
-      callStatus: updated.callStatus,
-      twilioCallSid: sid,
-      callAttemptedAt: updated.callAttemptedAt,
-      callCompletedAt: updated.callCompletedAt,
-      callDuration: updated.callDuration,
-      patientResponse: updated.patientResponse,
-      aiSummary,
-      errorMessage: null,
-    })
-
-    await createCallEventIfPossible({
-      callJobId: jobId,
-      twilioCallSid: sid,
-      eventType: isTest ? 'test_call_simulated' : 'call_initiated',
-      eventPayload: JSON.stringify({ mode: isTest ? 'test' : 'live' }),
-    })
-
-    if (isTest) {
-      const followUp = needsStaffFollowUp('', job.callReason)
-      if (followUp.needed) {
-        await createStaffTaskIfPossible({
-          callJobId: jobId,
-          patientName: job.patientName,
-          phoneNumber: job.phoneNumber,
-          medicationName: job.medicationName,
-          taskType: 'follow_up',
-          priority: 'high',
-          notes: followUp.reason,
-          aiSummary: updated.aiSummary,
-        })
-        await updateCallJobIfPresent(jobId, { staffFollowUpNeeded: true, followUpReason: followUp.reason })
-      }
-    }
-
-    return updated
-  } catch (e) {
-    const message = e instanceof Error ? e.message : 'Start call failed'
-    await updateCallJobIfPresent(jobId, {
-      callStatus: 'failed',
-      callCompletedAt: new Date(),
-      errorMessage: message,
-      staffFollowUpNeeded: true,
-      followUpReason: 'Call could not be started',
-    })
-    await createStaffTaskIfPossible({
-      callJobId: jobId,
-      patientName: job.patientName,
-      phoneNumber: job.phoneNumber,
-      medicationName: job.medicationName,
-      taskType: 'failed_call',
-      priority: 'high',
-      notes: message,
-    })
-    throw e
-  }
-}
-
-export async function startCallJobById(jobId: string) {
-  return runCall(jobId)
 }
 
 callJobsRouter.post('/calls/start', async (req, res) => {
@@ -314,7 +284,7 @@ callJobsRouter.post('/calls/start', async (req, res) => {
       res.status(400).json({ error: 'call_job_id is required' })
       return
     }
-    const job = await runCall(callJobId, fallbackJobFromBody(callJobId, body))
+    const job = await runCallWithGuards(callJobId, fallbackJobFromBody(callJobId, body))
     res.json(job)
   } catch (e) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Start call failed' })
@@ -322,8 +292,10 @@ callJobsRouter.post('/calls/start', async (req, res) => {
 })
 
 callJobsRouter.post('/call-jobs/:id/start-call', async (req, res) => {
+  const jobId = req.params.id
+  if (!jobId) { res.status(400).json({ error: 'ID required' }); return }
   try {
-    const job = await runCall(req.params.id!, fallbackJobFromBody(req.params.id!, req.body as Record<string, unknown>))
+    const job = await runCallWithGuards(jobId, fallbackJobFromBody(jobId, req.body as Record<string, unknown>))
     res.json(job)
   } catch (e) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Start call failed' })
@@ -331,9 +303,11 @@ callJobsRouter.post('/call-jobs/:id/start-call', async (req, res) => {
 })
 
 callJobsRouter.post('/call-jobs/:id/retry', async (req, res) => {
+  const jobId = req.params.id
+  if (!jobId) { res.status(400).json({ error: 'ID required' }); return }
   try {
     await prisma.callJob.update({
-      where: { id: req.params.id },
+      where: { id: jobId },
       data: {
         callStatus: 'queued',
         twilioCallSid: null,
@@ -343,13 +317,37 @@ callJobsRouter.post('/call-jobs/:id/retry', async (req, res) => {
         errorMessage: null,
       },
     }).catch(() => null)
-    const job = await runCall(
-      req.params.id!,
-      fallbackJobFromBody(req.params.id!, req.body as Record<string, unknown>),
+    const job = await runCallWithGuards(
+      jobId,
+      fallbackJobFromBody(jobId, req.body as Record<string, unknown>),
       { force: true },
     )
     res.json(job)
   } catch (e) {
     res.status(400).json({ error: e instanceof Error ? e.message : 'Retry failed' })
+  }
+})
+
+// Proxy Twilio recording audio — avoids exposing credentials to browser
+callJobsRouter.get('/call-jobs/:id/recording/audio', async (req, res) => {
+  try {
+    const job = await prisma.callJob.findUnique({ where: { id: req.params.id }, select: { recordingUrl: true } })
+    if (!job?.recordingUrl) { res.status(404).json({ error: 'No recording available' }); return }
+    if (!config.twilioAccountSid || !config.twilioAuthToken) {
+      res.status(503).json({ error: 'Recording playback is not configured for this environment.' })
+      return
+    }
+    const authHeader = 'Basic ' + Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString('base64')
+    const upstream = await fetch(job.recordingUrl, { headers: { Authorization: authHeader } })
+    if (!upstream.ok) { res.status(502).json({ error: 'Recording fetch failed' }); return }
+    res.setHeader('Content-Type', upstream.headers.get('Content-Type') ?? 'audio/mpeg')
+    const cl = upstream.headers.get('Content-Length')
+    if (cl) res.setHeader('Content-Length', cl)
+    res.setHeader('Cache-Control', 'private, max-age=3600')
+    const { Readable } = await import('stream')
+    if (upstream.body) Readable.fromWeb(upstream.body as Parameters<typeof Readable.fromWeb>[0]).pipe(res)
+    else res.status(502).json({ error: 'No audio stream' })
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Recording error' })
   }
 })

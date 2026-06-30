@@ -29,17 +29,31 @@ function parseTranscript(json: string | null | undefined) {
   try {
     const parsed = JSON.parse(json) as Array<{
       mode?: string
+      speaker?: 'ai' | 'patient' | 'pharmacy_staff' | 'system'
+      text?: string
       step?: string
       input?: string
       result?: string
       summary?: string
       at?: string
+      timestamp?: string
     }>
     if (!Array.isArray(parsed)) return []
-    return parsed.slice(-12).map((entry, index) => ({
-      speaker: entry.mode === 'ai' ? ('ai' as const) : entry.mode === 'dtmf' ? ('patient' as const) : ('staff' as const),
-      text: entry.summary ?? entry.result ?? entry.input ?? entry.step ?? 'Call event',
-      time: entry.at ? new Date(entry.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : `Step ${index + 1}`,
+    return parsed.filter((entry) => entry.speaker !== 'system').slice(-12).map((entry, index) => ({
+      speaker:
+        entry.speaker === 'ai'
+          ? ('ai' as const)
+          : entry.speaker === 'patient'
+            ? ('patient' as const)
+            : entry.mode === 'ai'
+              ? ('ai' as const)
+              : entry.mode === 'dtmf'
+                ? ('patient' as const)
+                : ('staff' as const),
+      text: entry.text ?? entry.summary ?? entry.result ?? entry.input ?? entry.step ?? 'Call event',
+      time: (entry.timestamp ?? entry.at)
+        ? new Date(entry.timestamp ?? entry.at ?? '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : `Step ${index + 1}`,
     }))
   } catch {
     return []

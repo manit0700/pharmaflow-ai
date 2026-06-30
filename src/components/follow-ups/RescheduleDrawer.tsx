@@ -21,12 +21,14 @@ export function RescheduleDrawer({ open, currentDate, currentTime, onClose, onSa
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (open) {
+    if (!open) return
+    const id = window.setTimeout(() => {
       setDate(currentDate)
       setTime(currentTime)
       setReason('')
       setError(null)
-    }
+    }, 0)
+    return () => window.clearTimeout(id)
   }, [open, currentDate, currentTime])
 
   if (!open) return null

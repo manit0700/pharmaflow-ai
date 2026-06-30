@@ -11,7 +11,6 @@ import {
   Play,
   RefreshCw,
   Search,
-  Sparkles,
   TrendingUp,
   TriangleAlert,
   UserRoundCheck,
@@ -25,7 +24,8 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn, formatDuration, formatTime } from '@/lib/utils'
-import { CALL_RECORDINGS_MOCK, createDemoCallRecord } from '@/data/callRecordingsMock'
+import { useCallOperations } from '@/hooks/useCallOperations'
+import { mergeRecordingSources } from '@/utils/callJobToRecording'
 import type { CallRecordingRecord, CallStatus, FollowUpAction, Sentiment, WorkflowType } from '@/types/callRecordings'
 import {
   DATE_OPTIONS,
@@ -89,8 +89,9 @@ function exportBlob(filename: string, payload: unknown) {
 }
 
 export function CallRecordingDashboard() {
-  const [calls, setCalls] = useState<CallRecordingRecord[]>(CALL_RECORDINGS_MOCK)
-  const [selectedId, setSelectedId] = useState<string>(CALL_RECORDINGS_MOCK[0]?.id ?? '')
+  const [localCalls, setLocalCalls] = useState<CallRecordingRecord[]>([])
+  const { jobs, loading: liveLoading, refresh } = useCallOperations()
+  const [selectedId, setSelectedId] = useState<string>('')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<'all' | CallStatus>('all')
   const [workflow, setWorkflow] = useState<'all' | WorkflowType>('all')
@@ -103,6 +104,13 @@ export function CallRecordingDashboard() {
   const [playing, setPlaying] = useState(false)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
   const [progressSec, setProgressSec] = useState(0)
+
+  const liveCalls = useMemo(() => mergeRecordingSources(jobs), [jobs])
+  const calls = useMemo(() => {
+    if (liveCalls.length === 0) return localCalls
+    const liveIds = new Set(liveCalls.map((call) => call.id))
+    return [...liveCalls, ...localCalls.filter((call) => !liveIds.has(call.id))]
+  }, [liveCalls, localCalls])
 
   const filtered = useMemo(
     () => filterAndSortCalls(calls, { search, status, workflow, review, date, sort }),
@@ -131,7 +139,7 @@ export function CallRecordingDashboard() {
   }, [calls])
 
   const updateCall = (id: string, patch: Partial<CallRecordingRecord>) => {
-    setCalls((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
+    setLocalCalls((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
   }
 
   const applyFollowup = (action: FollowUpAction) => {
@@ -170,16 +178,11 @@ export function CallRecordingDashboard() {
   const simulateRefresh = () => {
     setLoading(true)
     setErrored(false)
-    setTimeout(() => {
+    void refresh(true)
+    window.setTimeout(() => {
       setLoading(false)
       setErrored(false)
     }, 800)
-  }
-
-  const generateDemo = () => {
-    const rec = createDemoCallRecord()
-    setCalls((prev) => [rec, ...prev])
-    setSelectedId(rec.id)
   }
 
   const exportLogs = () => {
@@ -189,7 +192,7 @@ export function CallRecordingDashboard() {
   const selectedDuration = selected?.durationSec ?? 0
   const progressPct = selectedDuration ? Math.min(100, (progressSec / selectedDuration) * 100) : 0
 
-  if (loading) {
+  if (loading || (liveLoading && calls.length === 0)) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-24" />
@@ -228,10 +231,6 @@ export function CallRecordingDashboard() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={generateDemo}>
-            <Sparkles className="h-4 w-4" />
-            Generate Demo Call
-          </Button>
           <Button variant="outline" onClick={exportLogs}>
             <Download className="h-4 w-4" />
             Export Logs
@@ -345,8 +344,7 @@ export function CallRecordingDashboard() {
         <Card>
           <CardContent className="space-y-3 p-8 text-center">
             <AlertCircle className="mx-auto h-8 w-8 text-muted-foreground" />
-            <p className="text-sm font-medium">No call recordings found. Try changing filters or generate a demo call.</p>
-            <Button onClick={generateDemo}>Generate Demo Call</Button>
+            <p className="text-sm font-medium">No call recordings yet. Completed calls will appear here.</p>
           </CardContent>
         </Card>
       ) : (

@@ -37,6 +37,11 @@ export function CallStatusBanners({
 
   const configFile =
     health.configSource === 'local.config.json' ? 'server/local.config.json' : 'server/.env'
+  const provider = health.phoneProvider
+  const providerName = provider?.displayName ?? 'PharmaFlow Calling'
+  const carrierName = provider?.carrierName ?? 'Twilio'
+  const providerAccount = provider?.account ?? health.twilioAccount
+  const fromNumber = provider?.fromNumber ?? health.twilioFromNumber
 
   return (
     <>
@@ -62,7 +67,7 @@ export function CallStatusBanners({
       {!health.testMode && !health.liveCallReadiness?.ready && (
         <Card className="border-destructive/40 bg-destructive/5">
           <CardContent className="space-y-2 p-4 text-sm">
-            <strong>Live Twilio not ready</strong>
+            <strong>Live calling not ready</strong>
             <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
               {health.liveCallReadiness?.issues.map((issue) => (
                 <li key={issue}>{issue}</li>
@@ -80,23 +85,24 @@ export function CallStatusBanners({
       {!health.testMode && health.liveCallReadiness?.ready && (
         <Card
           className={
-            health.twilioAccount?.type === 'Trial'
+            providerAccount?.type === 'Trial'
               ? 'border-destructive/40 bg-destructive/5'
               : 'border-primary/30 bg-primary/5'
           }
         >
           <CardContent className="space-y-2 p-4 text-sm">
-            <strong>Live Twilio mode</strong> — calling from{' '}
-            <code className="text-xs">{health.twilioFromNumber ?? 'unknown'}</code>
-            {health.twilioAccount?.friendlyName && (
-              <span> · {health.twilioAccount.friendlyName}</span>
+            <strong>{providerName}</strong> — calling from{' '}
+            <code className="text-xs">{fromNumber ?? 'unknown'}</code>
+            <span> · carrier: {carrierName}</span>
+            {providerAccount?.friendlyName && (
+              <span> · {providerAccount.friendlyName}</span>
             )}
             {health.callMode === 'ai' && health.aiCallConfigured && (
               <span> · AI calls ({health.callAiModel ?? 'OpenAI'})</span>
             )}
-            {health.twilioAccount?.type === 'Trial' ? (
+            {providerAccount?.type === 'Trial' ? (
               <p className="text-muted-foreground">
-                Twilio reports <strong>Trial</strong> — only{' '}
+                {carrierName} reports <strong>Trial</strong> — only{' '}
                 <a
                   href="https://console.twilio.com/us1/develop/phone-numbers/manage/verified"
                   className="text-primary underline"
@@ -107,7 +113,7 @@ export function CallStatusBanners({
                 </a>{' '}
                 can be called. Upgrade billing or use test mode.
               </p>
-            ) : health.twilioAccount?.type === 'Full' ? (
+            ) : providerAccount?.type === 'Full' ? (
               <p className="text-muted-foreground">
                 Paid account — outbound calls to patient numbers are enabled.
               </p>

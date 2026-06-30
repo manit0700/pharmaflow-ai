@@ -24,7 +24,7 @@ export function CallFlowPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Outbound call flow</h1>
         <p className="text-sm text-muted-foreground">
-          Live Twilio outbound path — greeting, identity check, patient answer, staff escalation
+          Live PharmaFlow Calling path — greeting, identity check, patient answer, staff escalation
         </p>
       </div>
 

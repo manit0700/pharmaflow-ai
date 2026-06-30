@@ -19,10 +19,12 @@ export function AssignStaffDrawer({ open, currentTeam, onClose, onSave }: Assign
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (open) {
+    if (!open) return
+    const id = window.setTimeout(() => {
       setTeam(currentTeam)
       setError(null)
-    }
+    }, 0)
+    return () => window.clearTimeout(id)
   }, [open, currentTeam])
 
   if (!open) return null

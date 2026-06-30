@@ -8,21 +8,37 @@ import {
 } from './callScripts.js'
 import { safeVoicemailMessage } from './safety.js'
 
-function sayAttrs() {
-  return { voice: config.twilioVoice } as { voice: 'Polly.Joanna' }
+function sayAttrs(): Record<string, string> {
+  return { voice: config.twilioVoice }
 }
 
-function slowSay(node: any, text: string): void {
-  const say = node.say(sayAttrs())
-  if (say.prosody) {
-    say.prosody({ rate: '85%' }, text)
-    return
-  }
-  node.say(sayAttrs(), text)
+const SAFE_FINAL_ACK = 'Thank you. We have recorded your answer.'
+const FAREWELL_PHRASE_RE =
+  /\b(?:good[- ]?bye|bye[- ]?bye|bye now|see you(?: later| soon)?|talk (?:to you )?soon|take care(?: now)?|farewell|so long|cheers|until next time|all the best|best wishes|best of luck|have a (?:nice|great|good|wonderful|blessed) (?:day|evening|night|one)|good night|good evening)\b[,.! ]*/gi
+const FAREWELL_WORD_RE =
+  /\b(?:goodbye|bye|farewell|take care|see you|nice day|great day|good day|wonderful day|best wishes|good night|good evening)\b/i
+
+function sanitizeSpokenText(text: string): string {
+  const cleaned = text
+    .replace(FAREWELL_PHRASE_RE, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.!?])/g, '$1')
+    .trim()
+
+  if (!cleaned || FAREWELL_WORD_RE.test(cleaned)) return SAFE_FINAL_ACK
+  return cleaned
+}
+
+type TwimlSayNode = {
+  say: (attrs: ReturnType<typeof sayAttrs>, message: string) => void
+}
+
+function slowSay(node: TwimlSayNode, text: string): void {
+  node.say(sayAttrs(), sanitizeSpokenText(text))
 }
 
 function startAfterPause(vr: twilio.twiml.VoiceResponse): void {
-  vr.pause({ length: 2 })
+  vr.pause({ length: 0.5 })
 }
 
 function voiceResponseUrl(params: Record<string, string>): string {
@@ -32,12 +48,24 @@ function voiceResponseUrl(params: Record<string, string>): string {
 
 export function scriptContextFromJob(job: {
   patientName: string
+  dob?: string
   medicationName: string
+  prescriptionCost?: number | null
+  prescriptionsJson?: string | null
 }): ScriptContext {
+  let prescriptions: ScriptContext['prescriptions']
+  if (job.prescriptionsJson) {
+    try {
+      prescriptions = JSON.parse(job.prescriptionsJson) as ScriptContext['prescriptions']
+    } catch { /* ignore */ }
+  }
   return {
     pharmacyName: config.pharmacyName,
     patientName: job.patientName,
+    patientDob: job.dob ?? undefined,
     medicationName: job.medicationName,
+    prescriptions,
+    prescriptionCost: job.prescriptionCost ?? undefined,
   }
 }
 
@@ -65,7 +93,7 @@ export function buildDtmfGreetingTwiml(params: {
     timeout: 10,
   })
   slowSay(gather, script.dobPrompt)
-  slowSay(vr, 'We did not receive a response. Goodbye.')
+  vr.hangup()
   return vr.toString()
 }
 
@@ -92,7 +120,7 @@ export function buildDtmfMenuTwiml(params: {
     timeout: 10,
   })
   slowSay(gather, script.mainMenu(params.ctx))
-  slowSay(vr, 'We did not receive a selection. Goodbye.')
+  vr.hangup()
   return vr.toString()
 }
 
@@ -111,7 +139,10 @@ export function buildDtmfClosingTwiml(params: {
       vr.dial(config.staffPhone)
     } else {
       slowSay(vr, 'Please call the pharmacy during business hours.')
+      vr.hangup()
     }
+  } else {
+    vr.hangup()
   }
   return vr.toString()
 }
@@ -139,7 +170,7 @@ export function buildDtmfDobRetryTwiml(params: {
     timeout: 10,
   })
   slowSay(gather, 'Please try again. ' + script.dobPrompt)
-  slowSay(vr, 'We could not verify your identity. Goodbye.')
+  vr.hangup()
   return vr.toString()
 }
 
@@ -148,6 +179,7 @@ export function buildVoicemailTwiml(reason: CallReason, ctx: ScriptContext): str
   const script = getCallScript(reason)
   startAfterPause(vr)
   slowSay(vr, fillTemplate(script.voicemail, ctx) || safeVoicemailMessage(config.pharmacyName))
+  vr.hangup()
   return vr.toString()
 }
 
@@ -159,6 +191,7 @@ export function buildTransferTwiml(): string {
     vr.dial(config.staffPhone)
   } else {
     slowSay(vr, 'Please call the pharmacy during business hours.')
+    vr.hangup()
   }
   return vr.toString()
 }
@@ -172,25 +205,94 @@ export function buildAiGatherTwiml(params: {
 }): string {
   const vr = new twilio.twiml.VoiceResponse()
   startAfterPause(vr)
-  slowSay(vr, params.spoken)
   const expectingDob = params.step === 'greeting'
-  const gather = vr.gather({
-    input: ['speech', 'dtmf'],
-    numDigits: expectingDob ? 4 : 1,
-    speechTimeout: 'auto',
+  // Twilio hints max = 500 chars. Keep these tight.
+  // DOB: digits + month names only (~200 chars)
+  const dobHints =
+    'zero, one, two, three, four, five, six, seven, eight, nine, ' +
+    'January, February, March, April, May, June, July, August, September, October, November, December, ' +
+    'first, second, third, fourth, fifth, tenth, twentieth, thirtieth'
+  // Yes/no: keep under 500 chars (~320 chars)
+  const answerHints =
+    'yes, yeah, yep, yup, sure, okay, ok, alright, please, go ahead, process it, sounds good, of course, absolutely, definitely, correct, right, ' +
+    'no, nope, nah, not yet, not now, not today, already got it, maybe later, skip it, negative'
+
+  const gatherAttrs = {
+    // Both DOB and conversation turns accept speech + dtmf so keypad is always a fallback.
+    // DOB: numDigits=4 so pressing MMDD submits immediately (no # needed, no 15s wait).
+    // Conversation: numDigits=1 so a single keypress is accepted immediately.
+    // numDigits does NOT suppress speech — if the caller speaks first, STT still runs.
+    input: ['speech', 'dtmf'] as ('speech' | 'dtmf')[],
+    ...(expectingDob ? { numDigits: 4 } : { numDigits: 1 }),
+    // 1s silence after patient stops talking — sufficient for short DOB/yes/no phrases.
+    speechTimeout: '1' as const,
+    language: 'en-US' as const,
+    // No speechModel — default avoids requiring the Voice Intelligence add-on
+    hints: expectingDob ? dobHints : answerHints,
     action: voiceResponseUrl({
       callJobId: params.callJobId,
-      step: params.step === 'greeting' ? 'ai' : 'ai',
+      step: params.step ?? 'ai',
       reason: params.reason,
       mode: 'ai',
       ...(params.state ? { state: params.state } : {}),
     }),
-    method: 'POST',
-    timeout: 8,
-  })
-  slowSay(gather, ' ')
-  slowSay(vr, 'We did not hear a response. Goodbye.')
+    method: 'POST' as const,
+    timeout: 15,
+  }
+
+  // Always put <Say> inside <Gather> so Twilio manages TTS/STT separation.
+  // Previously, <Say> outside <Gather> left an audio tail that triggered VAD
+  // and caused the Gather to submit with an empty SpeechResult before the
+  // patient could speak.
+  const gather = vr.gather(gatherAttrs)
+  slowSay(gather, params.spoken)
+
+  vr.hangup()
   return vr.toString()
+}
+
+export function buildAiDobRetryTwiml(params: {
+  callJobId: string
+  reason: CallReason
+  state?: string
+}): string {
+  return buildAiGatherTwiml({
+    callJobId: params.callJobId,
+    reason: params.reason,
+    spoken: 'Sorry, I did not catch the date of birth clearly. Please say the month and day again, for example January first.',
+    step: 'greeting',
+    state: params.state,
+  })
+}
+
+export function buildAiPostDobPrompt(params: {
+  callJobId: string
+  reason: CallReason
+  ctx: ScriptContext
+  state?: string
+}): string {
+  const names =
+    params.ctx.prescriptions && params.ctx.prescriptions.length > 1
+      ? params.ctx.prescriptions.map((p) => p.name).join(', ')
+      : params.ctx.medicationName || 'your prescription'
+  const costLine = params.ctx.prescriptionCost
+    ? ` Your total amount due is $${params.ctx.prescriptionCost.toFixed(2)}.`
+    : ''
+  const promptByReason: Record<CallReason, string> = {
+    refill_reminder: `Thank you. We are reaching out about a refill for ${names} that may be due.${costLine} Would you like us to process that refill today?`,
+    pickup_reminder: `Thank you. Your prescription for ${names} is ready for pickup at the pharmacy.${costLine} Do you plan to pick it up today?`,
+    delivery_update: 'Thank you. We have an update about your prescription delivery. Are you available to receive delivery today?',
+    insurance_update: 'Thank you. We have an insurance-related pharmacy update. Would you like to speak with our pharmacy team about it?',
+    general_callback: 'Thank you. We are following up on a prescription matter. Is this a good time to talk?',
+  }
+
+  return buildAiGatherTwiml({
+    callJobId: params.callJobId,
+    reason: params.reason,
+    spoken: promptByReason[params.reason] ?? promptByReason.general_callback,
+    step: 'ai',
+    state: params.state,
+  })
 }
 
 export function buildAiClosingTwiml(spoken: string, action: 'complete' | 'transfer' | 'callback'): string {
@@ -203,7 +305,10 @@ export function buildAiClosingTwiml(spoken: string, action: 'complete' | 'transf
       vr.dial(config.staffPhone)
     } else {
       slowSay(vr, 'Please call the pharmacy during business hours.')
+      vr.hangup()
     }
+  } else {
+    vr.hangup()
   }
   return vr.toString()
 }
@@ -216,7 +321,8 @@ export function buildAiGreetingTwiml(params: {
 }): string {
   const script = getCallScript(params.reason)
   const spoken =
-    fillTemplate(script.greeting, params.ctx) + ' ' + script.dobPrompt
+    fillTemplate(script.greeting, params.ctx) +
+    ' To verify your identity, please say your date of birth, or press the month and day on your keypad.'
   return buildAiGatherTwiml({
     callJobId: params.callJobId,
     reason: params.reason,
@@ -276,13 +382,14 @@ export function buildInboundTwiml(): string {
     gather,
     'Press 1 for refill, 2 for prescription status, 3 for delivery, 4 for store hours, or 0 for staff.',
   )
-  slowSay(vr, 'Goodbye.')
+  vr.hangup()
   return vr.toString()
 }
 
 export function buildInboundAckTwiml(): string {
   const vr = new twilio.twiml.VoiceResponse()
   startAfterPause(vr)
-  slowSay(vr, 'Thank you. We have noted your request. Goodbye.')
+  slowSay(vr, 'Thank you. We have noted your request.')
+  vr.hangup()
   return vr.toString()
 }

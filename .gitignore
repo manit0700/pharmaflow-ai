@@ -11,6 +11,7 @@ node_modules
 dist
 .env
 .env.local
+.env.vercel.production
 server/node_modules
 server/dist
 server/.env
@@ -20,6 +21,9 @@ server/prisma/dev.db-journal
 server/uploads
 dist-ssr
 *.local
+venv
+.claude-flow
+server/.claude-flow
 
 # Editor directories and files
 .vscode/*

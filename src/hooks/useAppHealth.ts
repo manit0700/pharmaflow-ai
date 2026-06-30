@@ -16,10 +16,13 @@ export function useAppHealth(pollMs = 15000) {
   }, [])
 
   useEffect(() => {
-    void refresh()
+    const timeoutId = window.setTimeout(() => void refresh(), 0)
     if (pollMs <= 0) return
     const id = setInterval(() => void refresh(), pollMs)
-    return () => clearInterval(id)
+    return () => {
+      window.clearTimeout(timeoutId)
+      clearInterval(id)
+    }
   }, [pollMs, refresh])
 
   const dbConnected = health?.database?.connected === true

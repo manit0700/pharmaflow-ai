@@ -10,6 +10,10 @@ export interface LiveFeedItem {
 
 type TranscriptEntry = {
   at: string
+  timestamp?: string
+  sequence?: number
+  speaker?: 'ai' | 'patient' | 'pharmacy_staff' | 'system'
+  text?: string
   mode: 'dtmf' | 'ai' | 'system'
   step: string
   input?: string
@@ -45,10 +49,29 @@ function dtmfInputLabel(step: string, input: string, result?: string): string {
 function transcriptToFeed(entries: TranscriptEntry[]): LiveFeedItem[] {
   const items: LiveFeedItem[] = []
   for (const [i, e] of entries.entries()) {
+    const at = e.timestamp ?? e.at
+
+    // AI speech turn — show the actual spoken text, not the summary
+    if (e.speaker === 'ai' && e.text) {
+      items.push({ id: `ai-spoken-${e.sequence ?? i}`, at, speaker: 'pharmacy', text: e.text, step: e.step })
+      continue
+    }
+
+    if (e.speaker && e.text && !e.input && !e.result && !e.summary) {
+      items.push({
+        id: `structured-${e.sequence ?? i}`,
+        at,
+        speaker: e.speaker === 'patient' ? 'patient' : e.speaker === 'system' ? 'system' : 'pharmacy',
+        text: e.text,
+        step: e.step,
+      })
+      continue
+    }
+
     if (e.mode === 'system' && e.step === 'twilio_status') {
       items.push({
         id: `sys-${i}`,
-        at: e.at,
+        at,
         speaker: 'system',
         text: `Call status: ${e.result ?? e.input ?? 'update'}`,
         step: e.step,
@@ -59,7 +82,7 @@ function transcriptToFeed(entries: TranscriptEntry[]): LiveFeedItem[] {
     if (e.input && e.mode !== 'system') {
       items.push({
         id: `in-${i}`,
-        at: e.at,
+        at,
         speaker: 'patient',
         text: e.mode === 'ai' ? e.input : dtmfInputLabel(e.step, e.input, e.result),
         step: e.step,
@@ -69,7 +92,7 @@ function transcriptToFeed(entries: TranscriptEntry[]): LiveFeedItem[] {
     if (e.result) {
       items.push({
         id: `out-${i}`,
-        at: e.at,
+        at,
         speaker: 'pharmacy',
         text: e.summary ?? e.result,
         step: e.step,
@@ -77,7 +100,7 @@ function transcriptToFeed(entries: TranscriptEntry[]): LiveFeedItem[] {
     } else if (e.summary) {
       items.push({
         id: `sum-${i}`,
-        at: e.at,
+        at,
         speaker: 'pharmacy',
         text: e.summary,
         step: e.step,

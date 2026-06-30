@@ -7,6 +7,17 @@ import { buildLiveFeed } from '@/utils/liveTranscript'
 import { cn } from '@/lib/utils'
 
 type ChatMessage = { role: string; content: string }
+type RxItem = { name: string; cost: number }
+
+function parsePrescriptions(json: string | null): RxItem[] | null {
+  if (!json) return null
+  try {
+    const parsed = JSON.parse(json) as RxItem[]
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null
+  } catch {
+    return null
+  }
+}
 
 function parseMessages(json: string | null): ChatMessage[] {
   if (!json) return []
@@ -34,6 +45,7 @@ export function CallJobDetailPanel({
 }) {
   const messages = parseMessages(job.messagesJson)
   const liveFeed = buildLiveFeed(job)
+  const rxList = parsePrescriptions(job.prescriptionsJson)
   const conversationItems =
     liveFeed.length > 0
       ? liveFeed.map((item) => ({
@@ -48,7 +60,7 @@ export function CallJobDetailPanel({
         <div>
           <CardTitle className="text-base">{job.patientName}</CardTitle>
           <p className="mt-1 text-sm text-muted-foreground">
-            {job.phoneNumber} · {job.medicationName}
+            {job.phoneNumber} · {rxList ? rxList.map((r) => r.name).join(', ') : job.medicationName}
           </p>
         </div>
         <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close details">
@@ -75,6 +87,31 @@ export function CallJobDetailPanel({
               <Badge variant={job.validationStatus === 'valid' ? 'success' : 'destructive'}>
                 {job.validationStatus}
               </Badge>
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-xs text-muted-foreground mb-1">
+              Prescriptions {rxList && rxList.length > 1 ? `(${rxList.length})` : ''}
+            </dt>
+            <dd>
+              {rxList ? (
+                <ul className="space-y-0.5">
+                  {rxList.map((rx, i) => (
+                    <li key={i} className="flex justify-between text-sm">
+                      <span>{rx.name}</span>
+                      {rx.cost > 0 && <span className="text-green-700 dark:text-green-400 font-medium">${rx.cost.toFixed(2)}</span>}
+                    </li>
+                  ))}
+                  {job.prescriptionCost != null && rxList.length > 1 && (
+                    <li className="flex justify-between text-sm font-semibold border-t border-border/60 pt-1 mt-1">
+                      <span>Total due</span>
+                      <span className="text-green-700 dark:text-green-400">${job.prescriptionCost.toFixed(2)}</span>
+                    </li>
+                  )}
+                </ul>
+              ) : (
+                <span>{job.medicationName}{job.prescriptionCost != null ? ` — $${job.prescriptionCost.toFixed(2)}` : ''}</span>
+              )}
             </dd>
           </div>
         </dl>

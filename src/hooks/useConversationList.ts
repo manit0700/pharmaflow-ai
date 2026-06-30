@@ -27,9 +27,12 @@ export function useConversationList(): {
   }, [])
 
   useEffect(() => {
-    void refresh()
+    const timeoutId = window.setTimeout(() => void refresh(), 0)
     const id = setInterval(() => void refresh(), 10000)
-    return () => clearInterval(id)
+    return () => {
+      window.clearTimeout(timeoutId)
+      clearInterval(id)
+    }
   }, [refresh])
 
   return { conversations, loading, refresh }

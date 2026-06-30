@@ -2,6 +2,7 @@ import './loadSettings.js'
 import os from 'os'
 import { createApp } from './app.js'
 import { config } from './config.js'
+import { runDueScheduledRetries } from './services/retrySchedule.js'
 
 const app = createApp()
 
@@ -29,3 +30,10 @@ app.listen(config.port, '0.0.0.0', () => {
   console.log(`Health: http://localhost:${config.port}/api/health`)
   console.log('Routes: GET/POST /api/call-jobs, POST /api/call-jobs/:id/start-call')
 })
+
+const schedulerIntervalMs = 30_000
+setInterval(() => {
+  void runDueScheduledRetries().catch((err) => {
+    console.error('Scheduled call runner failed', err instanceof Error ? err.message : err)
+  })
+}, schedulerIntervalMs)

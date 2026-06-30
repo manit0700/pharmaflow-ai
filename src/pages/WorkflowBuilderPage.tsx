@@ -1,6 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useLiveDemo } from '@/context/LiveDemoContext'
-import { LiveCallFeed } from '@/components/demo/LiveCallFeed'
+import { useCallback, useRef, useState } from 'react'
 import {
   ReactFlow,
   Background,
@@ -22,9 +20,10 @@ import { NodeConfigDrawer } from '@/components/workflow/NodeConfigDrawer'
 import { ExecutionLogPanel } from '@/components/workflow/ExecutionLogPanel'
 import { PharmaNode } from '@/components/workflow/PharmaNode'
 import { WorkflowStatusBadge } from '@/components/shared/StatusBadge'
-import { initialWorkflows } from '@/data/mockData'
 import { useWorkflowSimulation } from '@/hooks/useWorkflowSimulation'
 import { createPaletteNode, parseWorkflowImport, workflowToExport } from '@/lib/workflow-utils'
+import { initialWorkflows } from '@/data/mockData'
+import { formatTime } from '@/lib/utils'
 import type { PaletteNodeDef, Workflow, WorkflowNode, WorkflowNodeData } from '@/types'
 
 type FlowNode = {
@@ -33,8 +32,6 @@ type FlowNode = {
   position: { x: number; y: number }
   data: WorkflowNodeData
 }
-import { formatTime } from '@/lib/utils'
-
 const nodeTypes = { pharma: PharmaNode }
 
 function toFlowNodes(nodes: WorkflowNode[]): FlowNode[] {
@@ -59,17 +56,16 @@ function toFlowEdges(edges: Workflow['edges']): Edge[] {
 
 function WorkflowBuilderInner() {
   const [workflows, setWorkflows] = useState(initialWorkflows)
-  const [activeId, setActiveId] = useState(initialWorkflows[0]!.id)
+  const [activeId, setActiveId] = useState(initialWorkflows[0]?.id ?? '')
   const [lastSaved, setLastSaved] = useState(new Date())
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const { running, logs, runTest, clearLogs } = useWorkflowSimulation()
-  const { isLive, registerWorkflowRunner } = useLiveDemo()
 
-  const workflow = workflows.find((w) => w.id === activeId) ?? workflows[0]!
+  const workflow = workflows.find((w) => w.id === activeId) ?? workflows[0]
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(toFlowNodes(workflow.nodes))
-  const [edges, setEdges, onEdgesChange] = useEdgesState(toFlowEdges(workflow.edges))
+  const [nodes, setNodes, onNodesChange] = useNodesState(toFlowNodes(workflow?.nodes ?? []))
+  const [edges, setEdges, onEdgesChange] = useEdgesState(toFlowEdges(workflow?.edges ?? []))
 
   const syncWorkflow = useCallback(
     (newNodes: FlowNode[], newEdges: Edge[]) => {
@@ -120,12 +116,10 @@ function WorkflowBuilderInner() {
     clearLogs()
   }
 
-  const selectedNode = useMemo(
-    () => workflow.nodes.find((n) => n.id === selectedNodeId) ?? null,
-    [workflow.nodes, selectedNodeId],
-  )
+  const workflowNodes = workflow?.nodes ?? []
+  const selectedNode = workflowNodes.find((n) => n.id === selectedNodeId) ?? null
 
-  const onAddNode = (def: PaletteNodeDef) => {
+  const onAddNode = useCallback((def: PaletteNodeDef) => {
     const newNode = createPaletteNode(def.type, def.label, def.category, {
       x: 100 + Math.random() * 200,
       y: 100 + Math.random() * 200,
@@ -136,7 +130,7 @@ function WorkflowBuilderInner() {
       return next
     })
     toast.success(`Added ${def.label}`)
-  }
+  }, [edges, setNodes, syncWorkflow])
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -258,54 +252,55 @@ function WorkflowBuilderInner() {
         })
       },
     )
-    if (!isLive) toast.success('Test workflow completed')
+    toast.success('Test workflow completed')
   }
 
-  const testRunRef = useRef(handleTestRun)
-  testRunRef.current = handleTestRun
-  useEffect(() => {
-    registerWorkflowRunner(() => testRunRef.current())
-    return () => registerWorkflowRunner(null)
-  }, [registerWorkflowRunner])
+  if (!workflow) {
+    return (
+      <div className="-m-4 flex h-[calc(100vh-3.5rem-8rem)] flex-col items-center justify-center gap-3 text-sm text-muted-foreground lg:-m-6">
+        <p className="font-medium">No workflow loaded</p>
+        <p>Drag nodes from the left palette, or use <strong>Import</strong> to load a saved workflow JSON.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="-m-4 flex h-[calc(100vh-3.5rem-8rem)] flex-col lg:-m-6">
       <div className="px-4 pt-2">
-        <LiveCallFeed />
-      </div>
-      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
-        <Select value={activeId} onValueChange={switchWorkflow}>
-          <SelectTrigger className="w-56">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {workflows.map((w) => (
-              <SelectItem key={w.id} value={w.id}>
-                {w.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <WorkflowStatusBadge status={workflow.status} />
-        <span className="text-xs text-muted-foreground">
-          Last saved {formatTime(lastSaved.toISOString())}
-        </span>
-        <div className="ml-auto flex flex-wrap gap-1">
-          <Button variant="outline" size="sm" onClick={handleSave}>
-            <Save className="h-3.5 w-3.5" /> Save
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleDuplicate}>
-            <Copy className="h-3.5 w-3.5" /> Duplicate
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download className="h-3.5 w-3.5" /> Export
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleImport}>
-            <Upload className="h-3.5 w-3.5" /> Import
-          </Button>
-          <Button size="sm" onClick={handleTestRun} disabled={running}>
-            <Play className="h-3.5 w-3.5" /> Run Test Workflow
-          </Button>
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card px-4 py-2">
+          <Select value={activeId} onValueChange={switchWorkflow}>
+            <SelectTrigger className="w-56">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {workflows.map((w) => (
+                <SelectItem key={w.id} value={w.id}>
+                  {w.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <WorkflowStatusBadge status={workflow.status} />
+          <span className="text-xs text-muted-foreground">
+            Last saved {formatTime(lastSaved.toISOString())}
+          </span>
+          <div className="ml-auto flex flex-wrap gap-1">
+            <Button variant="outline" size="sm" onClick={handleSave}>
+              <Save className="h-3.5 w-3.5" /> Save
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleDuplicate}>
+              <Copy className="h-3.5 w-3.5" /> Duplicate
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExport}>
+              <Download className="h-3.5 w-3.5" /> Export
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleImport}>
+              <Upload className="h-3.5 w-3.5" /> Import
+            </Button>
+            <Button size="sm" onClick={handleTestRun} disabled={running}>
+              <Play className="h-3.5 w-3.5" /> Run Test Workflow
+            </Button>
+          </div>
         </div>
       </div>
       <div className="flex min-h-0 flex-1">

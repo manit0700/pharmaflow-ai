@@ -23,6 +23,8 @@ async function initializeSqliteRuntimeDb(): Promise<void> {
       "medicationName" TEXT NOT NULL,
       "callReason" TEXT NOT NULL,
       "notes" TEXT,
+      "prescriptionCost" REAL,
+      "prescriptionsJson" TEXT,
       "validationStatus" TEXT NOT NULL DEFAULT 'pending',
       "validationError" TEXT,
       "callStatus" TEXT NOT NULL DEFAULT 'queued',
@@ -46,6 +48,9 @@ async function initializeSqliteRuntimeDb(): Promise<void> {
       "staffFollowUpNeeded" BOOLEAN NOT NULL DEFAULT false,
       "followUpReason" TEXT,
       "smsStatus" TEXT NOT NULL DEFAULT 'none',
+      "recordingUrl" TEXT,
+      "recordingSid" TEXT,
+      "recordingDuration" INTEGER,
       "parentCallJobId" TEXT,
       "retryOfCallJobId" TEXT,
       "retryAttempt" INTEGER NOT NULL DEFAULT 0,
@@ -166,6 +171,11 @@ async function initializeSqliteRuntimeDb(): Promise<void> {
   await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "aiConfidence" REAL')
   await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "resolutionStatus" TEXT')
   await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "uploadBatchId" TEXT')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "prescriptionCost" REAL')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "prescriptionsJson" TEXT')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "recordingUrl" TEXT')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "recordingSid" TEXT')
+  await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "recordingDuration" INTEGER')
   await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "resolvedAt" DATETIME')
   await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "resolvedBy" TEXT')
   await ignoreDuplicateColumn('ALTER TABLE "CallJob" ADD COLUMN "staffNotes" TEXT')
@@ -229,6 +239,8 @@ async function initializePostgresRuntimeDb(): Promise<void> {
       "medicationName" TEXT NOT NULL,
       "callReason" TEXT NOT NULL,
       "notes" TEXT,
+      "prescriptionCost" DOUBLE PRECISION,
+      "prescriptionsJson" TEXT,
       "validationStatus" TEXT NOT NULL DEFAULT 'pending',
       "validationError" TEXT,
       "callStatus" TEXT NOT NULL DEFAULT 'queued',
@@ -252,6 +264,9 @@ async function initializePostgresRuntimeDb(): Promise<void> {
       "staffFollowUpNeeded" BOOLEAN NOT NULL DEFAULT false,
       "followUpReason" TEXT,
       "smsStatus" TEXT NOT NULL DEFAULT 'none',
+      "recordingUrl" TEXT,
+      "recordingSid" TEXT,
+      "recordingDuration" INTEGER,
       "parentCallJobId" TEXT,
       "retryOfCallJobId" TEXT,
       "retryAttempt" INTEGER NOT NULL DEFAULT 0,
@@ -392,6 +407,11 @@ async function initializePostgresRuntimeDb(): Promise<void> {
   await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "retryStatus" TEXT NOT NULL DEFAULT \'none\'').catch(() => undefined)
   await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "createdFromOutcome" TEXT').catch(() => undefined)
   await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "relatedTaskId" TEXT').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "prescriptionCost" DOUBLE PRECISION').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "prescriptionsJson" TEXT').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "recordingUrl" TEXT').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "recordingSid" TEXT').catch(() => undefined)
+  await prisma.$executeRawUnsafe('ALTER TABLE "CallJob" ADD COLUMN IF NOT EXISTS "recordingDuration" INTEGER').catch(() => undefined)
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_retryOfCallJobId_idx" ON "CallJob" ("retryOfCallJobId")').catch(() => undefined)
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_parentCallJobId_idx" ON "CallJob" ("parentCallJobId")').catch(() => undefined)
   await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "CallJob_scheduledFor_idx" ON "CallJob" ("scheduledFor")').catch(() => undefined)

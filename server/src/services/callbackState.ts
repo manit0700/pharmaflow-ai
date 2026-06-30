@@ -8,6 +8,8 @@ export type CallbackState = {
   dob: string
   medicationName: string
   callReason: CallReason
+  prescriptionCost?: number | null
+  prescriptionsJson?: string | null
 }
 
 function keyMaterial(): string {

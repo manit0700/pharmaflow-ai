@@ -3,7 +3,7 @@ import { config, type CallReason } from '../config.js'
 import { getCallScript } from './callScripts.js'
 import { buildAiSummary } from './script.js'
 import { needsStaffFollowUp, normalizePhone } from './safety.js'
-import { startOutboundCall } from './twilio.js'
+import { phoneProvider } from './phoneProvider.js'
 
 const ACTIVE_CALL_STATUSES = new Set(['dialing', 'queued_live', 'ringing', 'in_progress'])
 
@@ -19,6 +19,8 @@ export type RunnableCallJob = {
   twilioCallSid: string | null
   callAttemptedAt?: Date | string | null
   doNotCall?: boolean | null
+  prescriptionCost?: number | null
+  prescriptionsJson?: string | null
 }
 
 function inBusinessHours(now = new Date()): boolean {
@@ -93,13 +95,15 @@ export async function runCall(jobId: string, fallbackJob?: RunnableCallJob | nul
   try {
     const result = config.autoCallTestMode
       ? { testMode: true as const, sid: `TEST_${job.id}_${Date.now()}` }
-      : await startOutboundCall({
+      : await phoneProvider.startOutboundCall({
           to: job.phoneNumber,
           callJobId: job.id,
           callReason: job.callReason as CallReason,
           patientName: job.patientName,
           dob: job.dob,
           medicationName: job.medicationName,
+          prescriptionCost: job.prescriptionCost as number | null | undefined,
+          prescriptionsJson: job.prescriptionsJson as string | null | undefined,
         })
 
     const isTest = 'testMode' in result && result.testMode

@@ -8,8 +8,8 @@ import {
   mapCallReasonToWorkflow,
   type RetryRecommendation,
 } from './callOutcome.js'
-import { getLiveCallReadiness, isTwilioConfigured } from './twilio.js'
 import { startCallJobById } from './callExecution.js'
+import { phoneProvider } from './phoneProvider.js'
 
 export const ACTIVE_RETRY_STATUSES = ['scheduled', 'in_progress', 'recommended'] as const
 
@@ -414,8 +414,8 @@ export async function runDueScheduledRetries() {
     take: 25,
   })
 
-  const readiness = getLiveCallReadiness()
-  const canPlaceLive = isTwilioConfigured() && readiness.ready && !config.autoCallTestMode
+  const readiness = phoneProvider.getReadiness()
+  const canStartCall = config.autoCallTestMode || (phoneProvider.isConfigured() && readiness.ready)
 
   const results: Array<{
     callJobId: string
@@ -424,10 +424,10 @@ export async function runDueScheduledRetries() {
   }> = []
 
   for (const job of dueJobs) {
-    if (!canPlaceLive) {
+    if (!canStartCall) {
       const message =
         readiness.issues.join(' ') ||
-        'Twilio is not ready. Scheduled retry remains queued. Trial accounts can only call verified numbers.'
+        `${phoneProvider.displayName} is not ready. Scheduled retry remains queued. Trial accounts can only call verified numbers.`
       await prisma.callJob.update({
         where: { id: job.id },
         data: {
@@ -456,5 +456,5 @@ export async function runDueScheduledRetries() {
     }
   }
 
-  return { processed: results.length, results, twilioReady: canPlaceLive }
+  return { processed: results.length, results, twilioReady: canStartCall, phoneProviderReady: canStartCall }
 }

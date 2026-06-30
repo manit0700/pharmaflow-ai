@@ -3,7 +3,6 @@ import { FollowUpTaskCard } from './FollowUpTaskCard'
 import { FollowUpEmptyState } from './FollowUpEmptyState'
 import {
   displayStatus,
-  formatActivityTime,
   formatDueDisplay,
   isTaskOverdue,
   priorityBadgeVariant,
@@ -142,5 +141,3 @@ export function FollowUpTaskList({
     </>
   )
 }
-
-export { formatActivityTime }

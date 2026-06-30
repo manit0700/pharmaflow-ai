@@ -40,6 +40,7 @@ export interface CallJob {
   aiConfidence: number | null
   resolutionStatus: string | null
   retryStatus?: string | null
+  scheduledFor?: string | null
   retryRecommendation?: {
     shouldRetry: boolean
     recommendedRetryAt: string | null
@@ -49,6 +50,11 @@ export interface CallJob {
   staffTasks?: StaffTask[]
   staffFollowUpNeeded: boolean
   followUpReason: string | null
+  prescriptionCost: number | null
+  prescriptionsJson: string | null
+  recordingUrl: string | null
+  recordingSid: string | null
+  recordingDuration: number | null
   createdAt: string
 }
 
@@ -108,6 +114,20 @@ export interface HealthResponse {
   twilioAuthMode?: string
   twilioAccount?: { type: string; friendlyName: string; status: string } | null
   twilioFromNumber?: string
+  phoneProvider?: {
+    id: string
+    displayName: string
+    carrierName: string
+    configured: boolean
+    authMode: string
+    fromNumber: string
+    account: { type: string; friendlyName: string; status: string } | null
+    readiness: {
+      ready: boolean
+      issues: string[]
+      publicBaseUrl: string
+    }
+  }
   testMode: boolean
   publicBaseUrl?: string
   port?: number
@@ -174,7 +194,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function fetchHealth(): Promise<HealthResponse> {
-  return request<HealthResponse>('/health')
+  return request<HealthResponse>('/health', { cache: 'no-store' })
 }
 
 export async function fetchCallJobs(): Promise<CallJob[]> {
@@ -188,6 +208,8 @@ export interface CreateCallJobInput {
   medicationName: string
   callReason: string
   notes?: string
+  prescriptionCost?: number | null
+  prescriptionsJson?: string | null
 }
 
 export async function createCallJob(input: CreateCallJobInput): Promise<CallJob> {
@@ -201,6 +223,8 @@ export async function createCallJob(input: CreateCallJobInput): Promise<CallJob>
       medicationName: input.medicationName,
       callReason: input.callReason,
       notes: input.notes || null,
+      prescriptionCost: input.prescriptionCost ?? null,
+      prescriptionsJson: input.prescriptionsJson ?? null,
     }),
   })
 }
@@ -229,6 +253,17 @@ export async function updateCallJob(
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
+  })
+}
+
+export async function scheduleQueuedCalls(
+  scheduledFor: string,
+  callJobIds?: string[],
+): Promise<{ scheduledFor: string; count: number; jobs: CallJob[] }> {
+  return request<{ scheduledFor: string; count: number; jobs: CallJob[] }>('/call-jobs/schedule-queued', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scheduledFor, callJobIds }),
   })
 }
 
@@ -331,4 +366,50 @@ export async function updateTask(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
+}
+
+export async function deleteCallJob(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/call-jobs/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Delete failed (${res.status}): ${body.slice(0, 200)}`)
+  }
+}
+
+export interface ConfigSettings {
+  twilioPhoneNumber: string
+  staffPhone: string
+  pharmacyName: string
+  callMode: 'dtmf' | 'ai'
+  twilioVoice: string
+  twilioLanguage: string
+  configSource?: string
+}
+
+export async function fetchConfig(): Promise<ConfigSettings> {
+  return request<ConfigSettings>('/config')
+}
+
+export async function saveConfig(
+  patches: Partial<ConfigSettings>,
+): Promise<{ ok: boolean; config: ConfigSettings }> {
+  return request<{ ok: boolean; config: ConfigSettings }>('/config', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patches),
+  })
+}
+
+export interface CallerIdStatus {
+  number: string
+  provider: string
+  carrier: string
+  usable: boolean
+  type: 'owned_number' | 'verified_caller_id' | 'not_found' | 'unknown'
+  message: string
+}
+
+export async function fetchCallerIdStatus(number?: string): Promise<CallerIdStatus> {
+  const query = number ? `?number=${encodeURIComponent(number)}` : ''
+  return request<CallerIdStatus>(`/config/caller-id-status${query}`)
 }

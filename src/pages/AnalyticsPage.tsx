@@ -164,6 +164,87 @@ export function AnalyticsPage() {
               </CardContent>
             </Card>
           )}
+
+          {/* Call outcomes — horizontal bar chart */}
+          {data.byStatus.length > 0 && (
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Call outcomes</CardTitle>
+                <CardDescription>Top patient responses by status</CardDescription>
+              </CardHeader>
+              <CardContent className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={data.byStatus.slice(0, 8)}
+                    layout="vertical"
+                    margin={{ left: 24, right: 16 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                    <XAxis type="number" allowDecimals={false} />
+                    <YAxis type="category" dataKey="status" width={130} tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Bar dataKey="count" name="Count" radius={[0, 4, 4, 0]}>
+                      {data.byStatus.slice(0, 8).map((entry) => {
+                        let fill = '#9ca3af'
+                        if (entry.status === 'completed') fill = '#22c55e'
+                        else if (entry.status === 'failed' || entry.status === 'escalated') fill = '#ef4444'
+                        else if (entry.status === 'callback_requested') fill = '#eab308'
+                        return <Cell key={entry.status} fill={fill} />
+                      })}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Refill performance stat row */}
+          {(() => {
+            const refillTotal = data.byReason.find((r) => r.reason === 'refill_reminder')?.count ?? 0
+            const refillCompleted =
+              data.completionByReason.find((r) => r.reason === 'refill_reminder')?.completed ?? 0
+            const refillRate =
+              refillTotal > 0 ? `${((refillCompleted / refillTotal) * 100).toFixed(1)}%` : '—'
+            const avgResponseRate =
+              data.attempted > 0
+                ? `${((data.withPatientResponse / data.attempted) * 100).toFixed(1)}%`
+                : '—'
+            const followUpRate =
+              data.attempted > 0
+                ? `${((data.escalated / data.attempted) * 100).toFixed(1)}%`
+                : '0%'
+            return (
+              <div className="lg:col-span-2 grid gap-4 sm:grid-cols-3">
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground">Refill confirmation rate</p>
+                    <p className="text-2xl font-semibold">{refillRate}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Completed refill calls / total refill jobs
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground">Avg response rate</p>
+                    <p className="text-2xl font-semibold">{avgResponseRate}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Patient answers / calls attempted
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground">Follow-up rate</p>
+                    <p className="text-2xl font-semibold">{followUpRate}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Escalations / calls attempted
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            )
+          })()}
         </div>
       )}
     </div>

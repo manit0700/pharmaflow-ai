@@ -7,7 +7,7 @@ import { normalizeDatabaseEnv, resolveSqliteDatabaseUrl } from './lib/databaseUr
 export type ConfigSource = 'local.config.json' | 'env'
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const localConfigPath = path.join(serverRoot, 'local.config.json')
+export const localConfigPath = path.join(serverRoot, 'local.config.json')
 const envPath = path.join(serverRoot, '.env')
 
 let configSource: ConfigSource = 'env'

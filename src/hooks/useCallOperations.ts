@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
   createCallJob,
+  deleteCallJob,
   fetchCallJobs,
   fetchHealth,
   fetchTasks,
   importExcel,
   retryCall,
+  scheduleQueuedCalls,
   startCall,
   updateCallJob,
   type CallJob,
@@ -35,12 +37,11 @@ function writeLocalJobs(jobs: CallJob[]) {
 }
 
 function mergeJobs(serverJobs: CallJob[], localJobs: CallJob[]) {
-  const byId = new Map<string, CallJob>()
-  for (const job of localJobs) byId.set(job.id, job)
-  for (const job of serverJobs) byId.set(job.id, { ...byId.get(job.id), ...job })
-  return [...byId.values()].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  )
+  const localById = new Map<string, CallJob>()
+  for (const job of localJobs) localById.set(job.id, job)
+  return serverJobs
+    .map((job) => ({ ...localById.get(job.id), ...job }))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 }
 
 export function useCallOperations() {
@@ -52,7 +53,6 @@ export function useCallOperations() {
   const [loading, setLoading] = useState(true)
   const [callingId, setCallingId] = useState<string | null>(null)
   const [updatingStatusIds, setUpdatingStatusIds] = useState<Record<string, boolean>>({})
-  const [recentlyEndedAt, setRecentlyEndedAt] = useState<number | null>(null)
 
   const refresh = useCallback(async (silent = false) => {
     try {
@@ -85,21 +85,11 @@ export function useCallOperations() {
 
   const activeJobs = jobs.filter((j) => isActiveCallStatus(j.callStatus))
 
-  // When active calls drop to zero, keep fast polling for 20s to catch final status
   useEffect(() => {
-    if (activeJobs.length === 0 && callingId === null) {
-      setRecentlyEndedAt((prev) => prev ?? Date.now())
-    } else {
-      setRecentlyEndedAt(null)
-    }
-  }, [activeJobs.length, callingId])
-
-  useEffect(() => {
-    const stillRecent = recentlyEndedAt !== null && Date.now() - recentlyEndedAt < 20000
-    const ms = activeJobs.length > 0 || callingId ? 2000 : stillRecent ? 2000 : 8000
+    const ms = activeJobs.length > 0 || callingId ? 2000 : 8000
     const id = setInterval(() => void refresh(true), ms)
     return () => clearInterval(id)
-  }, [refresh, activeJobs.length, callingId, recentlyEndedAt])
+  }, [refresh, activeJobs.length, callingId])
 
   const onUpload = async (file: File) => {
     try {
@@ -118,16 +108,18 @@ export function useCallOperations() {
       return
     }
     if (health?.ok && !health.testMode && !health.liveCallReadiness?.ready) {
-      toast.error(health.liveCallReadiness?.issues.join(' ') ?? 'Live Twilio is not configured')
+      toast.error(health.liveCallReadiness?.issues.join(' ') ?? 'Live calling is not configured')
       return
     }
     if (health?.ok && !health.testMode) {
+      const provider = health.phoneProvider
+      const providerAccount = provider?.account ?? health.twilioAccount
       const trialNote =
-        health.twilioAccount?.type === 'Trial'
+        providerAccount?.type === 'Trial'
           ? ' This Twilio account is still on Trial — the number must be verified in Twilio Console.'
           : ''
       const ok = window.confirm(
-        `Place a real Twilio call${currentJob ? ` to ${currentJob.phoneNumber}` : ''} from ${health.twilioFromNumber ?? 'your Twilio number'}?${trialNote}`,
+        `Place a real PharmaFlow call${currentJob ? ` to ${currentJob.phoneNumber}` : ''} from ${provider?.fromNumber ?? health.twilioFromNumber ?? 'your calling number'}?${trialNote}`,
       )
       if (!ok) return
     }
@@ -203,18 +195,43 @@ export function useCallOperations() {
     }
   }
 
+  const onScheduleQueued = async (scheduledFor: string) => {
+    try {
+      const result = await scheduleQueuedCalls(scheduledFor)
+      const formatted = new Date(result.scheduledFor).toLocaleString()
+      setJobs((prev) => {
+        const next = mergeJobs(result.jobs, prev)
+        writeLocalJobs(next)
+        return next
+      })
+      toast.success(
+        result.count === 0
+          ? 'No queued valid calls were available to schedule'
+          : `Scheduled ${result.count} call${result.count === 1 ? '' : 's'} for ${formatted}`,
+      )
+      await refresh(true)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not schedule queued calls')
+    }
+  }
+
   const onUpdateStatus = async (id: string, callStatus: string) => {
+    // Optimistic update first so the UI reflects the change immediately
+    setJobs((prev) => prev.map((j) => j.id === id ? { ...j, callStatus } : j))
     setUpdatingStatusIds((prev) => ({ ...prev, [id]: true }))
     try {
       const updated = await updateCallJob(id, { callStatus })
+      // Apply server response — do NOT call refresh() here; the polling interval will sync
+      // Calling refresh() immediately risks Twilio's concurrent webhook overwriting the manual change
       setJobs((prev) => {
         const next = mergeJobs([updated], prev)
         writeLocalJobs(next)
         return next
       })
-      toast.success(`Call status updated to ${callStatus.replace(/_/g, ' ')}`)
-      await refresh(true)
+      toast.success(`Status set to "${callStatus.replace(/_/g, ' ')}"`)
     } catch (e) {
+      // Revert optimistic update on failure
+      setJobs((prev) => prev.map((j) => j.id === id ? { ...j, callStatus: j.callStatus } : j))
       toast.error(e instanceof Error ? e.message : 'Could not update call status')
     } finally {
       setUpdatingStatusIds((prev) => {
@@ -222,6 +239,20 @@ export function useCallOperations() {
         delete next[id]
         return next
       })
+    }
+  }
+
+  const onDelete = async (id: string) => {
+    try {
+      await deleteCallJob(id)
+      setJobs((prev) => {
+        const next = prev.filter((j) => j.id !== id)
+        writeLocalJobs(next)
+        return next
+      })
+      toast.success('Call job deleted')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Delete failed')
     }
   }
 
@@ -244,6 +275,8 @@ export function useCallOperations() {
     onCreate,
     onStart,
     onRetry,
+    onScheduleQueued,
+    onDelete,
     onUpdateStatus,
     queued,
     completed,

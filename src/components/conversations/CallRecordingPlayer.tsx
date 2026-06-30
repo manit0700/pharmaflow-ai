@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Download, Mic, Pause, Play, Square } from 'lucide-react'
+import { Download, Mic, Pause, Play, Square, Volume2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn, formatDuration } from '@/lib/utils'
@@ -16,6 +16,8 @@ export function CallRecordingPlayer({
   transcript,
   patientName,
 }: CallRecordingPlayerProps) {
+  const hasRealAudio = Boolean(recording.audioProxyUrl)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
   const [playing, setPlaying] = useState(false)
   const [currentSec, setCurrentSec] = useState(0)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -86,18 +88,24 @@ export function CallRecordingPlayer({
     stopPlayback()
     setPlaying(true)
     setCurrentSec(0)
-    speakTranscript()
-    intervalRef.current = setInterval(() => {
-      setCurrentSec((t) => {
-        const next = t + 0.25
-        if (next >= recording.durationSec) {
-          stopPlayback()
-          return recording.durationSec
-        }
-        return next
-      })
-    }, 250)
-  }, [recording.durationSec, speakTranscript, stopPlayback])
+    if (hasRealAudio && recording.audioProxyUrl) {
+      if (!audioRef.current) {
+        audioRef.current = new Audio(recording.audioProxyUrl)
+        audioRef.current.onended = () => stopPlayback()
+        audioRef.current.ontimeupdate = () => setCurrentSec(audioRef.current?.currentTime ?? 0)
+      }
+      void audioRef.current.play()
+    } else {
+      speakTranscript()
+      intervalRef.current = setInterval(() => {
+        setCurrentSec((t) => {
+          const next = t + 0.25
+          if (next >= recording.durationSec) { stopPlayback(); return recording.durationSec }
+          return next
+        })
+      }, 250)
+    }
+  }, [hasRealAudio, recording.audioProxyUrl, recording.durationSec, speakTranscript, stopPlayback])
 
   const seek = (sec: number) => {
     const clamped = Math.max(0, Math.min(recording.durationSec, sec))
@@ -196,9 +204,15 @@ export function CallRecordingPlayer({
         </span>
       </div>
 
-      <p className="text-[10px] text-muted-foreground">
-        Playback reads the stored transcript aloud. Waveform reflects call duration until Twilio recording is attached.
-      </p>
+      {hasRealAudio ? (
+        <p className="text-[10px] text-green-600 dark:text-green-400 flex items-center gap-1">
+          <Volume2 className="h-3 w-3" /> Twilio recording available — plays real audio
+        </p>
+      ) : (
+        <p className="text-[10px] text-muted-foreground">
+          No recording saved yet. Playback reads the transcript aloud. Recording saves automatically on next call.
+        </p>
+      )}
 
       {transcript.length > 0 && (
         <div className="space-y-1 max-h-32 overflow-auto border-t border-border pt-3">

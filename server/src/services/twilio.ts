@@ -5,8 +5,8 @@ import {
   getTwilioCredentialIssues,
   resolveTwilioAuthMode,
 } from '../lib/twilioAuth.js'
-import { buildInboundTwiml } from './twilioFlow.js'
 import { encodeCallbackState } from './callbackState.js'
+import { buildPublicCallbackUrl, getCallbackReadiness } from './callbackUrls.js'
 
 function getClient() {
   return getTwilioClient()
@@ -31,6 +31,7 @@ export { buildInboundTwiml } from './twilioFlow.js'
 export function getLiveCallReadiness(): LiveCallReadiness {
   const issues: string[] = []
   const base = config.publicBaseUrl
+  const callbacks = getCallbackReadiness()
 
   issues.push(...getTwilioCredentialIssues())
   if (!config.twilioPhoneNumber) {
@@ -38,22 +39,25 @@ export function getLiveCallReadiness(): LiveCallReadiness {
   } else if (!config.twilioPhoneNumber.startsWith('+')) {
     issues.push('TWILIO_PHONE_NUMBER must be E.164 format, e.g. +12145550100.')
   }
-  if (!base) {
-    issues.push('Set PUBLIC_BASE_URL to your ngrok HTTPS URL before live calls.')
-  } else if (/\s|->/.test(base)) {
-    issues.push(
-      'PUBLIC_BASE_URL must be a single HTTPS URL only. Remove extra text/arrows and keep only your ngrok URL, e.g. https://abc123.ngrok-free.app.',
-    )
-  } else if (/localhost|127\.0\.0\.1/i.test(base)) {
-    issues.push(
-      'PUBLIC_BASE_URL cannot be localhost for live calls. Run ngrok http 4002, paste the HTTPS URL into server/local.config.json, and restart the API.',
-    )
-  } else if (!base.startsWith('https://')) {
-    issues.push('PUBLIC_BASE_URL must be a public HTTPS URL, for example https://abc123.ngrok-free.app.')
-  } else if (config.configSource === 'local.config.json' && /vercel\.app/i.test(base)) {
-    issues.push(
-      'PUBLIC_BASE_URL points to Vercel while running local PC mode. Twilio callbacks will update the deployed server, not your local dashboard. Use your ngrok HTTPS URL for local live updates.',
-    )
+  if (callbacks.warning) {
+    if (!base) issues.push('Set PUBLIC_BASE_URL to your ngrok HTTPS URL before live calls.')
+    else if (/\s|->/.test(base)) {
+      issues.push(
+        'PUBLIC_BASE_URL must be a single HTTPS URL only. Remove extra text/arrows and keep only your ngrok URL, e.g. https://abc123.ngrok-free.app.',
+      )
+    } else if (/localhost|127\.0\.0\.1/i.test(base)) {
+      issues.push(
+        'PUBLIC_BASE_URL cannot be localhost for live calls. Run ngrok http 4002, paste the HTTPS URL into server/local.config.json, and restart the API.',
+      )
+    } else if (!base.startsWith('https://')) {
+      issues.push('PUBLIC_BASE_URL must be a public HTTPS URL, for example https://abc123.ngrok-free.app.')
+    } else if (config.configSource === 'local.config.json' && /vercel\.app/i.test(base)) {
+      issues.push(
+        'PUBLIC_BASE_URL points to Vercel while running local PC mode. Twilio callbacks will update the deployed server, not your local dashboard. Use your ngrok HTTPS URL for local live updates.',
+      )
+    } else {
+      issues.push(callbacks.warning)
+    }
   }
   if (config.callMode === 'ai' && !config.openaiApiKey?.trim()) {
     issues.push('CALL_MODE=ai requires OPENAI_API_KEY in server/local.config.json or server/.env.')
@@ -123,9 +127,11 @@ function twilioCallErrorMessage(err: unknown): string {
   }
   if (status === '403' || msg.includes('403')) {
     return (
-      'Twilio rejected the call (403). On trial accounts you can only call verified numbers. ' +
-      'Use E.164 format (+1682…) for TWILIO_PHONE_NUMBER, verify the patient number in Twilio Console, ' +
-      'or set AUTO_CALL_TEST_MODE=true to simulate calls without Twilio.'
+      'Twilio rejected the call (403). Possible causes: ' +
+      '(1) TWILIO_PHONE_NUMBER must be a number purchased from Twilio, not a personal number — buy one in Twilio Console under Phone Numbers. ' +
+      '(2) On trial accounts the destination number must be verified under Twilio Console → Verified Caller IDs. ' +
+      '(3) API credentials may lack outbound call permissions. ' +
+      'Or set AUTO_CALL_TEST_MODE=true to simulate calls without Twilio.'
     )
   }
   if (msg.includes('21211') || msg.toLowerCase().includes('invalid')) {
@@ -141,6 +147,8 @@ export async function startOutboundCall(params: {
   patientName: string
   dob: string
   medicationName: string
+  prescriptionCost?: number | null
+  prescriptionsJson?: string | null
 }): Promise<{ sid: string; status: string } | { testMode: true; sid: string }> {
   if (config.autoCallTestMode) {
     return { testMode: true, sid: `TEST_${params.callJobId}_${Date.now()}` }
@@ -161,17 +169,29 @@ export async function startOutboundCall(params: {
     dob: params.dob,
     medicationName: params.medicationName,
     callReason: params.callReason,
+    prescriptionCost: params.prescriptionCost,
+    prescriptionsJson: params.prescriptionsJson,
   })
 
   try {
     const call = await client.calls.create({
       to: params.to,
       from: config.twilioPhoneNumber,
-      url: `${config.publicBaseUrl}/api/twilio/voice-response?callJobId=${params.callJobId}&step=${initialStep}&reason=${params.callReason}&mode=${mode}&state=${encodeURIComponent(state)}`,
+      url: buildPublicCallbackUrl('/api/twilio/voice-response', {
+        callJobId: params.callJobId,
+        step: initialStep,
+        reason: params.callReason,
+        mode,
+        state,
+      }),
       method: 'POST',
-      statusCallback: `${config.publicBaseUrl}/api/twilio/status?callJobId=${params.callJobId}`,
+      statusCallback: buildPublicCallbackUrl('/api/twilio/status', { callJobId: params.callJobId }),
       statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
       statusCallbackMethod: 'POST',
+      record: true,
+      recordingStatusCallback: buildPublicCallbackUrl('/api/twilio/recording-status', { callJobId: params.callJobId }),
+      recordingStatusCallbackEvent: ['completed'],
+      recordingStatusCallbackMethod: 'POST',
     })
     return { sid: call.sid, status: call.status }
   } catch (err) {

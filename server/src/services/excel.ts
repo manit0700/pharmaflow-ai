@@ -18,6 +18,8 @@ export interface ParsedCallRow {
   medicationName: string
   callReason: CallReason
   notes: string | null
+  prescriptionCost: number | null
+  prescriptionsJson: string | null
   validationStatus: 'valid' | 'invalid'
   validationError: string | null
 }
@@ -29,6 +31,34 @@ export interface CallInput {
   medicationName: string
   callReason: string
   notes?: string | null
+  prescriptionCost?: number | null
+  prescriptionsJson?: string | null
+}
+
+function parsePrescriptions(
+  primaryName: string,
+  primaryCost: number | null,
+  additionalText: string | null,
+): { prescriptionsJson: string | null; totalCost: number | null } {
+  const all: Array<{ name: string; cost: number }> = []
+  if (primaryName) all.push({ name: primaryName, cost: primaryCost ?? 0 })
+
+  if (additionalText) {
+    for (const segment of additionalText.split(';')) {
+      const s = segment.trim()
+      if (!s) continue
+      const match = s.match(/^(.+?)\s+\$?([\d.]+)$/)
+      if (match) {
+        all.push({ name: match[1].trim(), cost: parseFloat(match[2]) })
+      } else if (s) {
+        all.push({ name: s, cost: 0 })
+      }
+    }
+  }
+
+  if (all.length === 0) return { prescriptionsJson: null, totalCost: null }
+  const totalCost = all.some((p) => p.cost > 0) ? all.reduce((sum, p) => sum + p.cost, 0) : null
+  return { prescriptionsJson: JSON.stringify(all), totalCost }
 }
 
 export function validateCallInput(input: CallInput): ParsedCallRow {
@@ -44,6 +74,24 @@ export function validateCallInput(input: CallInput): ParsedCallRow {
     errors.push(`call_reason must be one of: ${VALID_CALL_REASONS.join(', ')}`)
   }
 
+  let finalPrescriptionsJson: string | null
+  let finalCost: number | null
+
+  if (input.prescriptionsJson) {
+    finalPrescriptionsJson = input.prescriptionsJson
+    try {
+      const rxs = JSON.parse(input.prescriptionsJson) as Array<{ name: string; cost: number }>
+      const sum = rxs.reduce((s, r) => s + (r.cost ?? 0), 0)
+      finalCost = sum > 0 ? sum : (input.prescriptionCost ?? null)
+    } catch {
+      finalCost = input.prescriptionCost ?? null
+    }
+  } else {
+    const built = parsePrescriptions(input.medicationName.trim(), input.prescriptionCost ?? null, null)
+    finalPrescriptionsJson = built.prescriptionsJson
+    finalCost = built.totalCost ?? input.prescriptionCost ?? null
+  }
+
   return {
     patientName: input.patientName.trim() || 'Unknown patient',
     phoneNumber: phone ?? input.phoneNumber.trim(),
@@ -51,6 +99,8 @@ export function validateCallInput(input: CallInput): ParsedCallRow {
     medicationName: input.medicationName.trim(),
     callReason: VALID_CALL_REASONS.includes(reason) ? reason : 'general_callback',
     notes: input.notes?.trim() || null,
+    prescriptionCost: finalCost,
+    prescriptionsJson: finalPrescriptionsJson,
     validationStatus: errors.length ? 'invalid' : 'valid',
     validationError: errors.length ? errors.join('; ') : null,
   }
@@ -81,6 +131,18 @@ export function parseExcelBuffer(buffer: Buffer): ParsedCallRow[] {
       mapped[normalizeHeader(k)] = String(v ?? '').trim()
     }
 
+    const primaryCostRaw = mapped.medication_cost ?? mapped.prescription_cost ?? ''
+    const primaryCost = primaryCostRaw
+      ? parseFloat(primaryCostRaw.replace(/[^0-9.]/g, '')) || null
+      : null
+    const additionalText = mapped.additional_prescriptions ?? mapped.prescriptions ?? null
+
+    const { prescriptionsJson, totalCost } = parsePrescriptions(
+      mapped.medication_name ?? '',
+      primaryCost,
+      additionalText || null,
+    )
+
     return validateCallInput({
       patientName: mapped.patient_name || `Patient ${index + 1}`,
       phoneNumber: mapped.phone_number ?? '',
@@ -88,6 +150,8 @@ export function parseExcelBuffer(buffer: Buffer): ParsedCallRow[] {
       medicationName: mapped.medication_name,
       callReason: mapped.call_reason ?? '',
       notes: mapped.notes || null,
+      prescriptionCost: totalCost,
+      prescriptionsJson,
     })
   })
 }

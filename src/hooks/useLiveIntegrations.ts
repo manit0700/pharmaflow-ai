@@ -4,21 +4,22 @@ import type { IntegrationStatus } from '@/types'
 
 function buildIntegrations(health: HealthResponse | null): IntegrationStatus[] {
   const now = new Date().toISOString()
-  const twilioOk = Boolean(health?.twilioConfigured)
+  const callingProvider = health?.phoneProvider
+  const callingOk = Boolean(callingProvider?.configured ?? health?.twilioConfigured)
   const aiOk = health?.callMode !== 'ai' || health.aiCallConfigured === true
   const liveReady = Boolean(health?.testMode || health?.liveCallReadiness?.ready)
 
   return [
     {
-      id: 'twilio',
-      name: 'Twilio Voice',
+      id: 'calling',
+      name: callingProvider?.displayName ?? 'PharmaFlow Calling',
       category: 'Outbound calling',
-      connected: twilioOk,
-      health: twilioOk && liveReady ? 'healthy' : twilioOk ? 'degraded' : 'offline',
+      connected: callingOk,
+      health: callingOk && liveReady ? 'healthy' : callingOk ? 'degraded' : 'offline',
       lastSync: health?.ok ? now : '—',
-      summary: twilioOk
-        ? `From ${health?.twilioFromNumber ?? 'configured'} · ${health?.twilioAccount?.type ?? 'account'}`
-        : 'Set TWILIO_ACCOUNT_SID, API key, and TWILIO_PHONE_NUMBER in local.config.json',
+      summary: callingOk
+        ? `From ${callingProvider?.fromNumber ?? health?.twilioFromNumber ?? 'configured'} · carrier: ${callingProvider?.carrierName ?? 'Twilio'}`
+        : 'Configure the calling provider credentials and outbound caller ID',
     },
     {
       id: 'openai',
@@ -62,7 +63,7 @@ function buildIntegrations(health: HealthResponse | null): IntegrationStatus[] {
     {
       id: 'ngrok',
       name: 'Public webhook URL',
-      category: 'Twilio webhooks',
+      category: 'Call status webhooks',
       connected: Boolean(health?.liveCallReadiness?.ready && !health?.testMode),
       health: health?.testMode
         ? 'healthy'
@@ -94,9 +95,12 @@ export function useLiveIntegrations() {
   }, [])
 
   useEffect(() => {
-    void refresh()
+    const timeoutId = window.setTimeout(() => void refresh(), 0)
     const id = setInterval(() => void refresh(), 12000)
-    return () => clearInterval(id)
+    return () => {
+      window.clearTimeout(timeoutId)
+      clearInterval(id)
+    }
   }, [refresh])
 
   return { integrations: buildIntegrations(health), health, loading, refresh }

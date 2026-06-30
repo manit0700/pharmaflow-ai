@@ -3,11 +3,31 @@ import type { Conversation, ConversationMessage, RequestType, ResolutionStatus, 
 import { generateWaveformPeaks } from '@/utils/recording'
 
 type ChatMessage = { role: string; content: string }
+type TranscriptEntry = {
+  speaker?: 'ai' | 'patient' | 'pharmacy_staff' | 'system'
+  text?: string
+  input?: string
+  result?: string
+  summary?: string
+  step?: string
+  timestamp?: string
+  at?: string
+}
 
 function parseMessages(json: string | null): ChatMessage[] {
   if (!json) return []
   try {
     const parsed = JSON.parse(json) as ChatMessage[]
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function parseTranscript(json: string | null): TranscriptEntry[] {
+  if (!json) return []
+  try {
+    const parsed = JSON.parse(json) as TranscriptEntry[]
     return Array.isArray(parsed) ? parsed : []
   } catch {
     return []
@@ -36,20 +56,51 @@ function roleToConversationRole(role: string): ConversationMessage['role'] {
   return 'ai'
 }
 
+function transcriptRoleToConversationRole(role: TranscriptEntry['speaker']): ConversationMessage['role'] {
+  if (role === 'patient') return 'patient'
+  if (role === 'pharmacy_staff') return 'staff'
+  return 'ai'
+}
+
 export function callJobToConversation(job: CallJob): Conversation {
+  const rawTranscript = parseTranscript(job.transcriptJson).filter((entry) => entry.speaker !== 'system')
   const rawMessages = parseMessages(job.messagesJson)
   const startedAt = job.callAttemptedAt ?? job.callCompletedAt ?? job.createdAt
+
+  // Derive call intelligence from stored history
+  const aiTurns = rawMessages.filter((m) => m.role === 'assistant').length
+  const dobVerifiedInHistory = rawMessages.some((m) => m.role === 'system' && m.content === '__DOB_VERIFIED__')
+  const dobVerified = dobVerifiedInHistory || (job.patientResponse !== null && job.patientResponse !== 'DOB verification failed')
+
+  // Parse prescriptions if multiple
+  let prescriptionsDisplay = ''
+  if (job.prescriptionsJson) {
+    try {
+      const rxs = JSON.parse(job.prescriptionsJson) as Array<{ name: string; cost?: number }>
+      if (Array.isArray(rxs) && rxs.length > 1) {
+        prescriptionsDisplay = rxs.map((rx) => rx.name + (rx.cost ? ` ($${rx.cost.toFixed(2)})` : '')).join(' · ')
+      }
+    } catch { /* ignore */ }
+  }
   const durationSec = job.callDuration ?? 0
   const firstName = job.patientName.trim().split(/\s+/)[0] ?? job.patientName
 
-  const messages: ConversationMessage[] = rawMessages
-    .filter((m) => m.role !== 'system')
-    .map((m, i) => ({
-      id: `${job.id}-msg-${i}`,
-      role: roleToConversationRole(m.role),
-      content: m.content,
-      timestamp: startedAt,
-    }))
+  const messages: ConversationMessage[] =
+    rawTranscript.length > 0
+      ? rawTranscript.map((entry, i) => ({
+          id: `${job.id}-turn-${i}`,
+          role: transcriptRoleToConversationRole(entry.speaker),
+          content: entry.text ?? entry.summary ?? entry.result ?? entry.input ?? entry.step ?? 'Call event',
+          timestamp: entry.timestamp ?? entry.at ?? startedAt,
+        }))
+      : rawMessages
+          .filter((m) => m.role !== 'system')
+          .map((m, i) => ({
+            id: `${job.id}-msg-${i}`,
+            role: roleToConversationRole(m.role),
+            content: m.content,
+            timestamp: startedAt,
+          }))
 
   if (messages.length === 0 && job.patientResponse) {
     messages.push({
@@ -89,22 +140,29 @@ export function callJobToConversation(job: CallJob): Conversation {
     startedAt,
     workflowName: job.callReason.replace(/_/g, ' '),
     extractedData: {
-      medication: job.medicationName,
+      medication: prescriptionsDisplay || job.medicationName,
+      ...(prescriptionsDisplay ? { prescriptions: prescriptionsDisplay } : {}),
       patientResponse: job.patientResponse ?? '',
       phone: job.phoneNumber,
       callStatus: job.callStatus,
+      dobVerified: dobVerified ? 'Verified' : 'Not verified',
+      aiTurns: aiTurns > 0 ? String(aiTurns) : '—',
     },
     messages,
     transcript,
     recording: {
-      id: job.twilioCallSid ?? `rec-${job.id}`,
+      id: job.recordingSid ?? job.twilioCallSid ?? `rec-${job.id}`,
       fileName: `outbound-${safeName}-${startedAt.slice(0, 10)}.call`,
-      durationSec: Math.max(durationSec, 8),
+      // Use actual recording duration when available; fall back to estimated call duration
+      durationSec: job.recordingDuration ?? Math.max(durationSec, 8),
+      realDurationSec: job.recordingDuration ?? undefined,
       recordedAt: job.callCompletedAt ?? startedAt,
       waveformPeaks: generateWaveformPeaks(96, firstName.length),
       consentCaptured: true,
       retentionDays: 90,
       channelLabel: 'Outbound voice (Twilio)',
+      ...(job.recordingUrl ? { audioProxyUrl: `/api/call-jobs/${job.id}/recording/audio` } : {}),
+      ...(job.recordingSid ? { recordingSid: job.recordingSid } : {}),
     },
   }
 }

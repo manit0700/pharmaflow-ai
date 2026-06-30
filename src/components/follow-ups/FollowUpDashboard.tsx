@@ -52,7 +52,9 @@ export function FollowUpDashboard() {
   const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
-    if (!selectedId && tasks[0]?.id) setSelectedId(tasks[0].id)
+    if (selectedId || !tasks[0]?.id) return
+    const id = window.setTimeout(() => setSelectedId(tasks[0]!.id), 0)
+    return () => window.clearTimeout(id)
   }, [tasks, selectedId])
 
   const filtered = useMemo(() => filterAndSortTasks(tasks, filters), [tasks, filters])
@@ -66,12 +68,16 @@ export function FollowUpDashboard() {
   useEffect(() => {
     const taskParam = searchParams.get('task')
     const callParam = searchParams.get('callId')
+    let nextSelectedId: string | null = null
     if (taskParam) {
-      setSelectedId(taskParam)
+      nextSelectedId = taskParam
     } else if (callParam) {
       const linked = tasks.find((t) => t.relatedCallId === callParam)
-      if (linked) setSelectedId(linked.id)
+      if (linked) nextSelectedId = linked.id
     }
+    if (!nextSelectedId) return
+    const id = window.setTimeout(() => setSelectedId(nextSelectedId), 0)
+    return () => window.clearTimeout(id)
   }, [searchParams, tasks])
 
   const patchFilters = useCallback((patch: Partial<FollowUpFilters>) => {
@@ -99,10 +105,10 @@ export function FollowUpDashboard() {
     toast.success(`Assigned to ${team}`)
   }
 
-  const handleReschedule = async (date: string, time: string, _reason: string) => {
+  const handleReschedule = async (date: string, time: string, reason: string) => {
     if (!drawerTask) return
     await applyTaskUpdate(drawerTask.id, { dueDate: date, dueTime: time })
-    toast.success('Callback rescheduled')
+    toast.success(reason ? `Callback rescheduled: ${reason}` : 'Callback rescheduled')
   }
 
   const handleMarkComplete = async (taskId: string) => {

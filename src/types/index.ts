@@ -83,6 +83,9 @@ export interface CallRecording {
   consentCaptured: boolean
   retentionDays: number
   channelLabel: string
+  audioProxyUrl?: string
+  recordingSid?: string
+  realDurationSec?: number
 }
 
 export interface Conversation {
