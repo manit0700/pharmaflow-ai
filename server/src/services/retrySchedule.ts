@@ -522,20 +522,46 @@ export async function runDueBatchScheduledCalls(): Promise<{
 
   for (const job of dueJobs) {
     if (!canDial) {
+      // Atomic claim before marking blocked — avoids overwriting a concurrent runner's work
+      const claim = await prisma.callJob.updateMany({
+        where: {
+          id: job.id,
+          callStatus: 'scheduled',
+          twilioCallSid: null,
+          retryOfCallJobId: null,
+          validationStatus: 'valid',
+          scheduledFor: { lte: now },
+        },
+        data: { callStatus: 'queued', retryStatus: 'blocked', errorMessage: readiness.issues.join(' ') || `${phoneProvider.displayName} is not ready.` },
+      }).catch(() => ({ count: 0 }))
+      if (claim.count === 0) {
+        console.log(`[batch-scheduler] Skipped ${job.id} — already claimed or no longer eligible`)
+        continue
+      }
       const message = readiness.issues.join(' ') || `${phoneProvider.displayName} is not ready.`
-      await prisma.callJob.update({
-        where: { id: job.id },
-        data: { callStatus: 'queued', retryStatus: 'blocked', errorMessage: message },
-      }).catch(() => null)
       results.push({ callJobId: job.id, status: 'blocked', message })
       continue
     }
 
+    // Atomic claim: updateMany returns count === 0 if another runner already claimed this job
+    const claim = await prisma.callJob.updateMany({
+      where: {
+        id: job.id,
+        callStatus: 'scheduled',   // must still be in original scheduled state
+        twilioCallSid: null,        // not already dialing
+        retryOfCallJobId: null,     // original batch job, not a retry
+        validationStatus: 'valid',
+        scheduledFor: { lte: now },
+      },
+      data: { retryStatus: 'in_progress', callStatus: 'queued' },
+    }).catch(() => ({ count: 0 }))
+
+    if (claim.count === 0) {
+      console.log(`[batch-scheduler] Skipped ${job.id} — already claimed or no longer eligible`)
+      continue
+    }
+
     try {
-      await prisma.callJob.update({
-        where: { id: job.id },
-        data: { retryStatus: 'in_progress', callStatus: 'queued' },
-      })
       await startCallJobById(job.id)
       await prisma.callEvent.create({
         data: {
@@ -609,22 +635,45 @@ export async function runDueScheduledRetries() {
       const message =
         readiness.issues.join(' ') ||
         `${phoneProvider.displayName} is not ready. Scheduled retry remains queued. Trial accounts can only call verified numbers.`
-      await prisma.callJob.update({
-        where: { id: job.id },
-        data: {
-          retryStatus: 'blocked',
-          errorMessage: message,
+      // Atomic claim before blocking — prevents concurrent runner from also updating
+      const claim = await prisma.callJob.updateMany({
+        where: {
+          id: job.id,
+          retryStatus: 'scheduled',
+          callStatus: { in: ['scheduled', 'queued'] },
+          twilioCallSid: null,
+          retryOfCallJobId: { not: null },
+          scheduledFor: { lte: now },
         },
-      })
+        data: { retryStatus: 'blocked', errorMessage: message },
+      }).catch(() => ({ count: 0 }))
+      if (claim.count === 0) {
+        console.log(`[retry-scheduler] Skipped ${job.id} — already claimed or no longer eligible`)
+        continue
+      }
       results.push({ callJobId: job.id, status: 'blocked', message })
       continue
     }
 
+    // Atomic claim: only proceed if the job is still in the exact qualifying state
+    const claim = await prisma.callJob.updateMany({
+      where: {
+        id: job.id,
+        retryStatus: 'scheduled',                    // must not have been claimed already
+        callStatus: { in: ['scheduled', 'queued'] }, // not yet active or terminal
+        twilioCallSid: null,                          // no call in flight
+        retryOfCallJobId: { not: null },              // retry jobs only
+        scheduledFor: { lte: now },
+      },
+      data: { retryStatus: 'in_progress', callStatus: 'queued' },
+    }).catch(() => ({ count: 0 }))
+
+    if (claim.count === 0) {
+      console.log(`[retry-scheduler] Skipped ${job.id} — already claimed or no longer eligible`)
+      continue
+    }
+
     try {
-      await prisma.callJob.update({
-        where: { id: job.id },
-        data: { retryStatus: 'in_progress', callStatus: 'queued' },
-      })
       await startCallJobById(job.id)
       results.push({ callJobId: job.id, status: 'started', message: 'Due retry call initiated.' })
     } catch (err) {

@@ -273,5 +273,105 @@ test('completed job → NOT eligible', () => {
   )
 })
 
+// ────────────────────────────────────────────────────────────────────────────
+// atomic claim eligibility — mirrors updateMany WHERE in both schedulers
+// count === 0 means the job was already claimed or is no longer in qualifying state
+// ────────────────────────────────────────────────────────────────────────────
+const RETRY_STATUSES = new Set(['scheduled', 'queued'])
+
+function isBatchClaimEligible(job, now) {
+  return (
+    job.callStatus === 'scheduled' &&
+    job.twilioCallSid === null &&
+    job.retryOfCallJobId === null &&
+    job.validationStatus === 'valid' &&
+    job.scheduledFor !== null &&
+    new Date(job.scheduledFor) <= now
+  )
+}
+
+function isRetryClaimEligible(job, now) {
+  return (
+    job.retryStatus === 'scheduled' &&
+    RETRY_STATUSES.has(job.callStatus) &&
+    job.twilioCallSid === null &&
+    job.retryOfCallJobId !== null &&
+    job.scheduledFor !== null &&
+    new Date(job.scheduledFor) <= now
+  )
+}
+
+console.log('\n--- atomic claim eligibility ---')
+
+// Batch claim
+test('batch claim: qualifying job → claim succeeds (count would be 1)', () => {
+  assert.equal(
+    isBatchClaimEligible({ callStatus: 'scheduled', twilioCallSid: null, retryOfCallJobId: null, validationStatus: 'valid', scheduledFor: PAST }, NOW_DATE),
+    true,
+  )
+})
+test('batch claim: already queued (claimed by other runner) → count would be 0', () => {
+  assert.equal(
+    isBatchClaimEligible({ callStatus: 'queued', twilioCallSid: null, retryOfCallJobId: null, validationStatus: 'valid', scheduledFor: PAST }, NOW_DATE),
+    false,
+  )
+})
+test('batch claim: twilioCallSid set (already dialing) → count would be 0', () => {
+  assert.equal(
+    isBatchClaimEligible({ callStatus: 'scheduled', twilioCallSid: 'CA123', retryOfCallJobId: null, validationStatus: 'valid', scheduledFor: PAST }, NOW_DATE),
+    false,
+  )
+})
+test('batch claim: terminal callStatus (completed) → count would be 0', () => {
+  assert.equal(
+    isBatchClaimEligible({ callStatus: 'completed', twilioCallSid: null, retryOfCallJobId: null, validationStatus: 'valid', scheduledFor: PAST }, NOW_DATE),
+    false,
+  )
+})
+test('batch claim: future scheduledFor → count would be 0', () => {
+  assert.equal(
+    isBatchClaimEligible({ callStatus: 'scheduled', twilioCallSid: null, retryOfCallJobId: null, validationStatus: 'valid', scheduledFor: FUTURE }, NOW_DATE),
+    false,
+  )
+})
+
+// Retry claim
+test('retry claim: qualifying retry job → claim succeeds (count would be 1)', () => {
+  assert.equal(
+    isRetryClaimEligible({ retryStatus: 'scheduled', callStatus: 'scheduled', twilioCallSid: null, retryOfCallJobId: 'parent-id', scheduledFor: PAST }, NOW_DATE),
+    true,
+  )
+})
+test('retry claim: retryStatus already in_progress → count would be 0', () => {
+  assert.equal(
+    isRetryClaimEligible({ retryStatus: 'in_progress', callStatus: 'queued', twilioCallSid: null, retryOfCallJobId: 'parent-id', scheduledFor: PAST }, NOW_DATE),
+    false,
+  )
+})
+test('retry claim: twilioCallSid set → count would be 0', () => {
+  assert.equal(
+    isRetryClaimEligible({ retryStatus: 'scheduled', callStatus: 'queued', twilioCallSid: 'CA456', retryOfCallJobId: 'parent-id', scheduledFor: PAST }, NOW_DATE),
+    false,
+  )
+})
+test('retry claim: retryOfCallJobId null (not a retry) → count would be 0', () => {
+  assert.equal(
+    isRetryClaimEligible({ retryStatus: 'scheduled', callStatus: 'scheduled', twilioCallSid: null, retryOfCallJobId: null, scheduledFor: PAST }, NOW_DATE),
+    false,
+  )
+})
+test('retry claim: terminal callStatus → count would be 0', () => {
+  assert.equal(
+    isRetryClaimEligible({ retryStatus: 'scheduled', callStatus: 'completed', twilioCallSid: null, retryOfCallJobId: 'parent-id', scheduledFor: PAST }, NOW_DATE),
+    false,
+  )
+})
+test('retry claim: callStatus queued (also valid pre-dial state) → eligible', () => {
+  assert.equal(
+    isRetryClaimEligible({ retryStatus: 'scheduled', callStatus: 'queued', twilioCallSid: null, retryOfCallJobId: 'parent-id', scheduledFor: PAST }, NOW_DATE),
+    true,
+  )
+})
+
 console.log(`\nResult: ${passed} passed, ${failed} failed\n`)
 if (failed > 0) process.exit(1)
