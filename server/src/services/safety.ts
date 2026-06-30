@@ -1,3 +1,35 @@
+// Common phrases spoken by IVR systems and voicemail greetings.
+// All lower-case; compared against lower-cased speech input.
+const IVR_PHRASES = [
+  'the person you are trying to reach',
+  'is not available',
+  'leave a message',
+  'leave your message',
+  'at the tone',
+  'after the tone',
+  'mailbox is full',
+  'mailbox',
+  'voicemail',
+  'press 1',
+  'press one',
+  'if this is an emergency',
+  'please hold',
+  'your call may be recorded',
+  'business hours',
+  'automated system',
+  'not in service',
+  'the number you have dialed',
+  'has been disconnected',
+  'no longer in service',
+  'this number is not',
+]
+
+export function detectNonHumanAudio(text: string): boolean {
+  if (!text) return false
+  const lower = text.toLowerCase()
+  return IVR_PHRASES.some((phrase) => lower.includes(phrase))
+}
+
 /** Pharmacy-safe escalation triggers (no clinical advice, no PHI in logs). */
 export const ESCALATION_KEYWORDS = [
   'side effect',

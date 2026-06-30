@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma.js'
 import { config } from '../config.js'
 import { buildInboundTwiml } from '../services/twilio.js'
 import { buildAiSummary } from '../services/script.js'
-import { needsStaffFollowUp } from '../services/safety.js'
+import { detectNonHumanAudio, needsStaffFollowUp } from '../services/safety.js'
 import { loadMessageHistory, runAiCallTurn } from '../services/callAi.js'
 import { sendSmsFollowUp } from '../services/sms.js'
 import {
@@ -753,7 +753,7 @@ async function handleAiVoiceResponse(
   const { callJobId, step, reason, ctx, job, speech, digits, state, twilioCallSid } = params
 
   // Ignore stale Twilio webhooks that arrive after the call is already resolved
-  const terminalStatuses = new Set(['escalated', 'completed', 'callback_requested', 'voicemail', 'failed'])
+  const terminalStatuses = new Set(['escalated', 'completed', 'callback_requested', 'voicemail', 'failed', 'needs_review'])
   if (job.callStatus && terminalStatuses.has(job.callStatus)) {
     res.type('text/xml').send('<Response><Hangup/></Response>')
     return
@@ -798,6 +798,55 @@ async function handleAiVoiceResponse(
   const aiTurns = history.filter((m) => m.role === 'assistant').length
   // Check if DOB has been verified in a prior turn
   const dobAlreadyVerified = history.some((m) => m.role === 'system' && m.content === '__DOB_VERIFIED__')
+
+  // IVR/voicemail detection: only check when speech is present and call is early (< 3 AI turns).
+  // Catches IVR greetings transcribed as patient speech before wasting an OpenAI call.
+  if (speech && aiTurns < 3 && detectNonHumanAudio(speech)) {
+    const ivrEventKey = callbackEventKey([twilioCallSid, callJobId, 'non_human_audio', speech.slice(0, 40)])
+    if (!transcriptHasEvent(job.transcriptJson, ivrEventKey)) {
+      await updateCallJobIfPossible(callJobId, {
+        callStatus: 'voicemail',
+        patientResponse: 'Voicemail or IVR detected',
+        aiSummary: 'Call reached voicemail or automated phone system.',
+        staffFollowUpNeeded: true,
+        followUpReason: 'Voicemail or automated system detected',
+        callCompletedAt: new Date(),
+        resolutionStatus: 'pending',
+        transcriptJson: transcriptJsonWith(job.transcriptJson, {
+          eventKey: ivrEventKey,
+          mode: 'system' as const,
+          speaker: 'system',
+          step: 'ivr_detection',
+          text: 'Voicemail or IVR detected',
+          result: 'voicemail',
+        }),
+      })
+      await createCallEventOnce({
+        callJobId,
+        twilioCallSid,
+        eventType: 'non_human_audio_detected',
+        eventKey: ivrEventKey,
+        payload: { step, speechLength: speech.length },
+      })
+      await ensureFollowUpTaskForCallOutcome(
+        {
+          id: callJobId,
+          patientName: job.patientName,
+          phoneNumber: job.phoneNumber,
+          medicationName: job.medicationName,
+          callReason: reason,
+          callStatus: 'voicemail',
+          patientResponse: 'Voicemail or IVR detected',
+          followUpReason: 'Voicemail or automated system detected',
+          staffFollowUpNeeded: true,
+          aiSummary: 'Call reached voicemail or automated phone system.',
+        },
+        'voicemail',
+      ).catch(() => null)
+    }
+    res.type('text/xml').send('<Response><Hangup/></Response>')
+    return
+  }
 
   if ((step === 'ai_greeting' || step === 'greeting') && !dobAlreadyVerified) {
     const dobInput = digits?.trim() || digitsFromSpeech(speech)
@@ -848,6 +897,17 @@ async function handleAiVoiceResponse(
   }
 
   if (dobAlreadyVerified && reason === 'refill_reminder') {
+    if (!speech.trim() && !(digits ?? '').trim()) {
+      res.type('text/xml').send(buildAiGatherTwiml({
+        callJobId,
+        reason,
+        spoken: 'Sorry, I did not catch your answer. Would you like us to process that refill today?',
+        step: 'ai',
+        state,
+      }))
+      return
+    }
+
     const normalizedInput = digits === '1' ? 'yes' : digits === '2' ? 'no' : userText
     if (isAffirmativeRefillAnswer(normalizedInput) || isNegativeRefillAnswer(normalizedInput)) {
       const confirmed = isAffirmativeRefillAnswer(normalizedInput)

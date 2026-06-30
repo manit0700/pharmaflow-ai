@@ -2,7 +2,7 @@ import './loadSettings.js'
 import os from 'os'
 import { createApp } from './app.js'
 import { config } from './config.js'
-import { runDueScheduledRetries } from './services/retrySchedule.js'
+import { markStaleActiveCalls, runDueScheduledRetries } from './services/retrySchedule.js'
 
 const app = createApp()
 
@@ -37,3 +37,9 @@ setInterval(() => {
     console.error('Scheduled call runner failed', err instanceof Error ? err.message : err)
   })
 }, schedulerIntervalMs)
+
+setInterval(() => {
+  void markStaleActiveCalls().catch((err) => {
+    console.error('Stale call cleanup failed', err instanceof Error ? err.message : err)
+  })
+}, 60_000)

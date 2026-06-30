@@ -401,6 +401,89 @@ export async function scheduleRetryCallJob(originalId: string, input: RetrySched
   }
 }
 
+const STALE_ACTIVE_STATUSES = ['queued_live', 'dialing', 'ringing', 'in_progress'] as const
+const STALE_CALL_TIMEOUT_MS = 5 * 60 * 1000
+
+export async function markStaleActiveCalls(): Promise<{ marked: number }> {
+  const cutoff = new Date(Date.now() - STALE_CALL_TIMEOUT_MS)
+  const staleJobs = await prisma.callJob.findMany({
+    where: {
+      callStatus: { in: [...STALE_ACTIVE_STATUSES] },
+      updatedAt: { lt: cutoff },
+    },
+    select: {
+      id: true,
+      patientName: true,
+      phoneNumber: true,
+      medicationName: true,
+      callReason: true,
+      twilioCallSid: true,
+    },
+    take: 50,
+  })
+
+  let marked = 0
+  for (const job of staleJobs) {
+    try {
+      await prisma.callJob.update({
+        where: { id: job.id },
+        data: {
+          callStatus: 'needs_review',
+          resolutionStatus: 'needs_review',
+          staffFollowUpNeeded: true,
+          followUpReason: 'Carrier callback missing or tunnel unavailable',
+          callCompletedAt: new Date(),
+        },
+      })
+
+      await prisma.callEvent.create({
+        data: {
+          callJobId: job.id,
+          twilioCallSid: job.twilioCallSid,
+          eventType: 'stale_call_marked',
+          eventPayload: JSON.stringify({
+            reason: 'No callback received within timeout window',
+            markedAt: new Date().toISOString(),
+          }),
+        },
+      }).catch(() => null)
+
+      const existingTask = await prisma.staffTask.findFirst({
+        where: { callJobId: job.id, status: { in: ['open', 'in_progress'] } },
+      })
+      if (!existingTask) {
+        await prisma.staffTask.create({
+          data: {
+            callJobId: job.id,
+            patientName: job.patientName,
+            phoneNumber: job.phoneNumber,
+            medicationName: job.medicationName,
+            taskType: 'failed_call',
+            priority: 'high',
+            status: 'open',
+            notes: 'Carrier callback missing or tunnel unavailable',
+            assignedTeam: 'Unassigned',
+            dueDate: new Date().toISOString().slice(0, 10),
+            dueTime: '15:00',
+            sourceWorkflow: mapCallReasonToWorkflow(job.callReason as import('../config.js').CallReason),
+            issueSummary: 'Call stuck in active state with no callback — possible tunnel or carrier issue.',
+          },
+        }).catch(() => null)
+      }
+
+      marked++
+    } catch {
+      // Non-critical — continue processing remaining jobs
+    }
+  }
+
+  if (marked > 0) {
+    console.log(`[stale-cleanup] Marked ${marked} stale active call(s) as needs_review`)
+  }
+
+  return { marked }
+}
+
 export async function runDueScheduledRetries() {
   const now = new Date()
   const dueJobs = await prisma.callJob.findMany({

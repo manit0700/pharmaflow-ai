@@ -19,6 +19,7 @@ const FINAL_STATUSES = new Set([
   'busy',
   'failed',
   'canceled',
+  'needs_review',
 ])
 
 const ACTIVE_STATUSES = new Set([
