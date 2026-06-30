@@ -16,6 +16,7 @@ server/node_modules
 server/dist
 server/.env
 server/local.config.json
+server/dev.db
 server/prisma/dev.db
 server/prisma/dev.db-journal
 server/uploads
