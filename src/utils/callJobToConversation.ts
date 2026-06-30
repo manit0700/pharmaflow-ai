@@ -65,7 +65,24 @@ function transcriptRoleToConversationRole(role: TranscriptEntry['speaker']): Con
 }
 
 export function callJobToConversation(job: CallJob): Conversation {
-  const rawTranscript = parseTranscript(job.transcriptJson).filter((entry) => entry.speaker !== 'system')
+  const parsedTranscript = parseTranscript(job.transcriptJson)
+  const nonHumanAudioDetected =
+    job.callStatus === 'voicemail' ||
+    job.patientResponse === 'Voicemail or IVR detected' ||
+    parsedTranscript.some((entry) => entry.step === 'ivr_detection')
+  const rawTranscript = nonHumanAudioDetected
+    ? parsedTranscript
+        .filter((entry) => entry.speaker === 'ai' || entry.step === 'ivr_detection')
+        .map((entry) =>
+          entry.step === 'ivr_detection'
+            ? {
+                ...entry,
+                speaker: 'ai' as const,
+                text: job.aiSummary ?? 'Call reached voicemail or automated phone system.',
+              }
+            : entry,
+        )
+    : parsedTranscript.filter((entry) => entry.speaker !== 'system')
   const rawMessages = parseMessages(job.messagesJson)
   const startedAt = job.callAttemptedAt ?? job.callCompletedAt ?? job.createdAt
 
