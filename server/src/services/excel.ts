@@ -4,20 +4,21 @@ import { normalizePhone } from './safety.js'
 
 // Maps stripped column keys (lowercase, no separators) → internal snake_case name
 const COLUMN_ALIASES: Record<string, string> = {
-  // Patient name
+  // Patient name — separate first/last always preferred over combined
   patientname: 'patient_name',
   patientfirstname: '_first_name',
   firstname: '_first_name',
   patientlastname: '_last_name',
   lastname: '_last_name',
   name: 'patient_name',
-  // Phone
+  // Phone — cell phone keyed separately so it wins over home phone
   patientphone: 'phone_number',
-  patientcell: 'phone_number',
-  cellphone: 'phone_number',
+  homephone: 'phone_number',
   phone: 'phone_number',
   phonenumber: 'phone_number',
-  mobile: 'phone_number',
+  patientcell: 'cell_phone',
+  cellphone: 'cell_phone',
+  mobile: 'cell_phone',
   // DOB
   patientdob: 'dob',
   dateofbirth: 'dob',
@@ -191,6 +192,29 @@ function stripKey(h: string): string {
   return h.trim().toLowerCase().replace(/[\s_-]/g, '')
 }
 
+// Convert pharmacy "LASTNAME,FIRSTNAME" → "Firstname Lastname" in Title Case
+function toTitleCase(s: string): string {
+  return s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function resolvePatientName(mapped: Record<string, string>): string {
+  // Prefer explicit first/last columns (cleaner, correct order)
+  const first = mapped._first_name?.trim()
+  const last = mapped._last_name?.trim()
+  if (first || last) return toTitleCase([first, last].filter(Boolean).join(' '))
+
+  // Fall back to combined column — handle "LAST,FIRST" pharmacy format
+  const raw = mapped.patient_name?.trim() || ''
+  if (!raw) return ''
+  if (raw.includes(',')) {
+    const commaIdx = raw.indexOf(',')
+    const lastPart = raw.slice(0, commaIdx).trim()
+    const firstPart = raw.slice(commaIdx + 1).trim()
+    return toTitleCase([firstPart, lastPart].filter(Boolean).join(' '))
+  }
+  return toTitleCase(raw)
+}
+
 export function parseExcelBuffer(buffer: Buffer): ParsedCallRow[] {
   const workbook = XLSX.read(buffer, { type: 'buffer' })
   const sheet = workbook.Sheets[workbook.SheetNames[0]!]
@@ -214,15 +238,13 @@ export function parseExcelBuffer(buffer: Buffer): ParsedCallRow[] {
       }
     }
 
-    // Combine first + last name if full name not present
-    if (!mapped.patient_name) {
-      const first = mapped._first_name ?? ''
-      const last = mapped._last_name ?? ''
-      const combined = [first, last].filter(Boolean).join(' ')
-      if (combined) mapped.patient_name = combined
-    }
+    // Resolve name — handles LAST,FIRST format and prefers separate first/last columns
+    const patientName = resolvePatientName(mapped)
 
-    // Cost priority: patient pay > rx_cost > aac_cost > generic cost fields
+    // Cell phone wins over home phone for outbound calls
+    const phone = mapped.cell_phone || mapped.phone_number || ''
+
+    // Cost priority: patient pay > rx_cost > aac_cost
     const costRaw = mapped.medication_cost || mapped.rx_cost || mapped.aac_cost || ''
     const primaryCost = costRaw ? parseFloat(costRaw.replace(/[^0-9.]/g, '')) || null : null
 
@@ -248,8 +270,8 @@ export function parseExcelBuffer(buffer: Buffer): ParsedCallRow[] {
     const callReason = mapped.call_reason || 'refill_reminder'
 
     return validateCallInput({
-      patientName: mapped.patient_name || `Patient ${index + 1}`,
-      phoneNumber: mapped.phone_number || '',
+      patientName: patientName || `Patient ${index + 1}`,
+      phoneNumber: phone,
       dob: mapped.dob || '',
       medicationName: medName,
       callReason,

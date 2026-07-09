@@ -19,14 +19,15 @@ interface PreviewRow {
 const COLUMN_ALIASES: Record<string, string> = {
   patientname: 'patient_name', patientfirstname: '_first_name', firstname: '_first_name',
   patientlastname: '_last_name', lastname: '_last_name', name: 'patient_name',
-  patientphone: 'phone_number', patientcell: 'phone_number', cellphone: 'phone_number',
-  phone: 'phone_number', phonenumber: 'phone_number', mobile: 'phone_number',
+  // Cell phone is keyed separately so it wins over home phone
+  patientphone: 'phone_number', homephone: 'phone_number', phone: 'phone_number', phonenumber: 'phone_number',
+  patientcell: 'cell_phone', cellphone: 'cell_phone', mobile: 'cell_phone',
   patientdob: 'dob', dateofbirth: 'dob', birthdate: 'dob',
   drugname: 'medication_name', drug: 'medication_name', medicationname: 'medication_name',
   medication: 'medication_name', genericfor: 'medication_name',
   rxnumber: 'rx_number', rxno: 'rx_number', prescriptionnumber: 'rx_number',
-  patpay: 'medication_cost', patientpay: 'medication_cost', rxcost: 'medication_cost',
-  aaccost: 'medication_cost', medicationcost: 'medication_cost',
+  patpay: 'medication_cost', patientpay: 'medication_cost', rxcost: 'rx_cost',
+  aaccost: 'aac_cost', medicationcost: 'medication_cost',
   doctorname: 'doctor_name', prescribername: 'doctor_name', physician: 'doctor_name',
   callreason: 'call_reason', reason: 'call_reason',
   rxcomment: 'notes', rxnotes: 'notes', patientnotes: 'notes', comment: 'notes', comments: 'notes',
@@ -40,6 +41,23 @@ const COLUMN_ALIASES: Record<string, string> = {
 
 function stripKey(h: string): string {
   return h.trim().toLowerCase().replace(/[\s_-]/g, '')
+}
+
+function toTitleCase(s: string): string {
+  return s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function resolvePatientName(mapped: Record<string, string>): string {
+  const first = mapped._first_name?.trim()
+  const last = mapped._last_name?.trim()
+  if (first || last) return toTitleCase([first, last].filter(Boolean).join(' '))
+  const raw = mapped.patient_name?.trim() || ''
+  if (!raw) return ''
+  if (raw.includes(',')) {
+    const idx = raw.indexOf(',')
+    return toTitleCase([raw.slice(idx + 1).trim(), raw.slice(0, idx).trim()].filter(Boolean).join(' '))
+  }
+  return toTitleCase(raw)
 }
 
 function normalizePhone(value: string): string {
@@ -63,24 +81,19 @@ function parseWorkbook(buffer: ArrayBuffer, duplicatePhones: Set<string>): Previ
       if (!mapped[target]) mapped[target] = val
     }
 
-    // Combine first + last name if full name not present
-    if (!mapped.patient_name) {
-      const combined = [mapped._first_name, mapped._last_name].filter(Boolean).join(' ')
-      if (combined) mapped.patient_name = combined
-    }
+    const patientName = resolvePatientName(mapped)
+    // Prefer cell phone for outbound calls
+    const phone = mapped.cell_phone || mapped.phone_number || ''
 
-    // Build notes from metadata fields
     const noteParts: string[] = []
-    if (mapped.notes) noteParts.push(mapped.notes)
     if (mapped.doctor_name) noteParts.push(`Dr: ${mapped.doctor_name}`)
     if (mapped.rx_qty) noteParts.push(`Qty: ${mapped.rx_qty}`)
     if (mapped.refills) noteParts.push(`Refills: ${mapped.refills}`)
     if (mapped.days_supply) noteParts.push(`Days: ${mapped.days_supply}`)
     if (mapped.next_fill_date) noteParts.push(`Next fill: ${mapped.next_fill_date}`)
 
-    const phone = mapped.phone_number ?? ''
     return {
-      patientName: mapped.patient_name ?? '',
+      patientName,
       phoneNumber: phone,
       dob: mapped.dob ?? '',
       medicationName: mapped.medication_name ?? '',
