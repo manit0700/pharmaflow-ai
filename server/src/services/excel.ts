@@ -2,14 +2,88 @@ import * as XLSX from 'xlsx'
 import { VALID_CALL_REASONS, type CallReason } from '../config.js'
 import { normalizePhone } from './safety.js'
 
-const REQUIRED_COLUMNS = [
-  'patient_name',
-  'phone_number',
-  'dob',
-  'medication_name',
-  'call_reason',
-  'notes',
-] as const
+// Maps stripped column keys (lowercase, no separators) → internal snake_case name
+const COLUMN_ALIASES: Record<string, string> = {
+  // Patient name
+  patientname: 'patient_name',
+  patientfirstname: '_first_name',
+  firstname: '_first_name',
+  patientlastname: '_last_name',
+  lastname: '_last_name',
+  name: 'patient_name',
+  // Phone
+  patientphone: 'phone_number',
+  patientcell: 'phone_number',
+  cellphone: 'phone_number',
+  phone: 'phone_number',
+  phonenumber: 'phone_number',
+  mobile: 'phone_number',
+  // DOB
+  patientdob: 'dob',
+  dateofbirth: 'dob',
+  birthdate: 'dob',
+  dob: 'dob',
+  // Drug / medication
+  drugname: 'medication_name',
+  drug: 'medication_name',
+  medicationname: 'medication_name',
+  medication: 'medication_name',
+  genericfor: 'generic_for',
+  // Rx identifier
+  rxnumber: 'rx_number',
+  rxno: 'rx_number',
+  prescriptionnumber: 'rx_number',
+  // Cost — patient pay is the copay shown to patient
+  patpay: 'medication_cost',
+  patientpay: 'medication_cost',
+  rxcost: 'rx_cost',
+  aaccost: 'aac_cost',
+  medicationcost: 'medication_cost',
+  prescriptioncost: 'medication_cost',
+  // Refill info → stored in notes
+  rxqty: 'rx_qty',
+  quantity: 'rx_qty',
+  qty: 'rx_qty',
+  refills: 'refills',
+  refillsremaining: 'refills',
+  dayssupply: 'days_supply',
+  dayssup: 'days_supply',
+  // Doctor
+  doctorname: 'doctor_name',
+  prescribername: 'doctor_name',
+  physician: 'doctor_name',
+  rph: 'rph',
+  // Dates
+  rxdate: 'rx_date',
+  filldate: 'rx_date',
+  nextfilldate: 'next_fill_date',
+  duedate: 'next_fill_date',
+  nextfill: 'next_fill_date',
+  // Notes / comments
+  rxcomment: 'notes',
+  rxnotes: 'notes',
+  patientnotes: 'notes',
+  comment: 'notes',
+  comments: 'notes',
+  // Call reason
+  callreason: 'call_reason',
+  reason: 'call_reason',
+  // Address → stored in notes
+  patientstreet: 'address_street',
+  patientaddress: 'address_street',
+  address: 'address_street',
+  patientcity: 'address_city',
+  city: 'address_city',
+  patientstate: 'address_state',
+  state: 'address_state',
+  patientzip: 'address_zip',
+  zip: 'address_zip',
+  zipcode: 'address_zip',
+  postalcode: 'address_zip',
+  // Additional prescriptions (standard format)
+  additionalprescriptions: 'additional_prescriptions',
+  prescriptions: 'additional_prescriptions',
+}
 
 export interface ParsedCallRow {
   patientName: string
@@ -20,6 +94,7 @@ export interface ParsedCallRow {
   notes: string | null
   prescriptionCost: number | null
   prescriptionsJson: string | null
+  rxNumber: string | null
   validationStatus: 'valid' | 'invalid'
   validationError: string | null
 }
@@ -33,6 +108,7 @@ export interface CallInput {
   notes?: string | null
   prescriptionCost?: number | null
   prescriptionsJson?: string | null
+  rxNumber?: string | null
 }
 
 function parsePrescriptions(
@@ -101,6 +177,7 @@ export function validateCallInput(input: CallInput): ParsedCallRow {
     notes: input.notes?.trim() || null,
     prescriptionCost: finalCost,
     prescriptionsJson: finalPrescriptionsJson,
+    rxNumber: input.rxNumber?.trim() || null,
     validationStatus: errors.length ? 'invalid' : 'valid',
     validationError: errors.length ? errors.join('; ') : null,
   }
@@ -108,6 +185,10 @@ export function validateCallInput(input: CallInput): ParsedCallRow {
 
 function normalizeHeader(h: string): string {
   return h.trim().toLowerCase().replace(/\s+/g, '_')
+}
+
+function stripKey(h: string): string {
+  return h.trim().toLowerCase().replace(/[\s_-]/g, '')
 }
 
 export function parseExcelBuffer(buffer: Buffer): ParsedCallRow[] {
@@ -118,40 +199,64 @@ export function parseExcelBuffer(buffer: Buffer): ParsedCallRow[] {
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
   if (rows.length === 0) throw new Error('Excel file is empty')
 
-  const firstKeys = Object.keys(rows[0]!).map(normalizeHeader)
-  for (const col of REQUIRED_COLUMNS) {
-    if (!firstKeys.includes(col)) {
-      throw new Error(`Missing required column: ${col}`)
-    }
-  }
-
   return rows.map((row, index) => {
+    // Build mapped: apply alias mapping so pharmacy system columns are recognized
     const mapped: Record<string, string> = {}
     for (const [k, v] of Object.entries(row)) {
-      mapped[normalizeHeader(k)] = String(v ?? '').trim()
+      const val = String(v ?? '').trim()
+      const normalized = normalizeHeader(k)
+      const aliasTarget = COLUMN_ALIASES[stripKey(k)] ?? COLUMN_ALIASES[normalized.replace(/_/g, '')]
+      if (aliasTarget) {
+        // Only set alias target if not already set (first matching column wins)
+        if (!mapped[aliasTarget]) mapped[aliasTarget] = val
+      } else {
+        mapped[normalized] = val
+      }
     }
 
-    const primaryCostRaw = mapped.medication_cost ?? mapped.prescription_cost ?? ''
-    const primaryCost = primaryCostRaw
-      ? parseFloat(primaryCostRaw.replace(/[^0-9.]/g, '')) || null
-      : null
-    const additionalText = mapped.additional_prescriptions ?? mapped.prescriptions ?? null
+    // Combine first + last name if full name not present
+    if (!mapped.patient_name) {
+      const first = mapped._first_name ?? ''
+      const last = mapped._last_name ?? ''
+      const combined = [first, last].filter(Boolean).join(' ')
+      if (combined) mapped.patient_name = combined
+    }
 
-    const { prescriptionsJson, totalCost } = parsePrescriptions(
-      mapped.medication_name ?? '',
-      primaryCost,
-      additionalText || null,
-    )
+    // Cost priority: patient pay > rx_cost > aac_cost > generic cost fields
+    const costRaw = mapped.medication_cost || mapped.rx_cost || mapped.aac_cost || ''
+    const primaryCost = costRaw ? parseFloat(costRaw.replace(/[^0-9.]/g, '')) || null : null
+
+    // Build notes from extra pharmacy metadata fields
+    const notesParts: string[] = []
+    if (mapped.notes) notesParts.push(mapped.notes)
+    if (mapped.doctor_name) notesParts.push(`Dr: ${mapped.doctor_name}`)
+    if (mapped.rx_qty) notesParts.push(`Qty: ${mapped.rx_qty}`)
+    if (mapped.refills) notesParts.push(`Refills: ${mapped.refills}`)
+    if (mapped.days_supply) notesParts.push(`Days supply: ${mapped.days_supply}`)
+    if (mapped.rph) notesParts.push(`RPH: ${mapped.rph}`)
+    if (mapped.next_fill_date) notesParts.push(`Next fill: ${mapped.next_fill_date}`)
+    const addrParts = [mapped.address_street, mapped.address_city, mapped.address_state, mapped.address_zip].filter(Boolean)
+    if (addrParts.length) notesParts.push(`Address: ${addrParts.join(', ')}`)
+    const builtNotes = notesParts.length ? notesParts.join(' | ') : null
+
+    const medName = mapped.medication_name || mapped.generic_for || ''
+    const additionalText = mapped.additional_prescriptions || null
+
+    const { prescriptionsJson, totalCost } = parsePrescriptions(medName, primaryCost, additionalText)
+
+    // Default call_reason to refill_reminder for pharmacy system exports
+    const callReason = mapped.call_reason || 'refill_reminder'
 
     return validateCallInput({
       patientName: mapped.patient_name || `Patient ${index + 1}`,
-      phoneNumber: mapped.phone_number ?? '',
-      dob: mapped.dob,
-      medicationName: mapped.medication_name,
-      callReason: mapped.call_reason ?? '',
-      notes: mapped.notes || null,
+      phoneNumber: mapped.phone_number || '',
+      dob: mapped.dob || '',
+      medicationName: medName,
+      callReason,
+      notes: builtNotes,
       prescriptionCost: totalCost,
       prescriptionsJson,
+      rxNumber: mapped.rx_number || null,
     })
   })
 }
