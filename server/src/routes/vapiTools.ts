@@ -64,6 +64,31 @@ function copayAmount(job: { prescriptionCost: number | null }) {
   return job.prescriptionCost ?? null
 }
 
+// Format medication name for TTS — "MG" → "milligram", "MCG" → "microgram" etc.
+function ttsFormatMed(name: string): string {
+  return name
+    .replace(/\bMCG\b/gi, 'microgram')
+    .replace(/\bMG\b/gi, 'milligram')
+    .replace(/\bML\b/gi, 'milliliter')
+    .replace(/\bTABLET\b/gi, 'tablet')
+    .replace(/\bCAPSULE\b/gi, 'capsule')
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function buildMedList(job: { medicationName: string; prescriptionsJson: string | null }): string {
+  try {
+    if (job.prescriptionsJson) {
+      const rxs = JSON.parse(job.prescriptionsJson) as Array<{ name: string; cost?: number }>
+      if (rxs.length > 1) {
+        const names = rxs.map((r) => ttsFormatMed(r.name))
+        return names.join(', ')
+      }
+    }
+  } catch { /* fall through */ }
+  return ttsFormatMed(job.medicationName || 'on file')
+}
+
 vapiToolsRouter.post(['/tools/verify-dob', '/tools/verify-patient', '/tools/verifyPatient'], async (req, res) => {
   const body = req.body as VapiToolBody
   console.log('[vapi:verify-dob] raw body:', JSON.stringify(body).slice(0, 2000))
@@ -98,9 +123,10 @@ vapiToolsRouter.post(['/tools/verify-dob', '/tools/verify-patient', '/tools/veri
   })
 
   const copay = copayAmount(updated)
-  const copayText = copay != null ? `Copay amount: $${copay}.` : 'No copay on file.'
+  const copayText = copay != null ? `Total copay: $${copay.toFixed(2)}.` : 'No copay on file.'
+  const medList = buildMedList(updated)
   res.json(vapiResult(tcId,
-    `Verification successful. Patient name: ${updated.patientName}. Medication: ${updated.medicationName || 'on file'}. ${copayText} Card on file: No.`
+    `Verification successful. Patient name: ${updated.patientName}. Medications: ${medList}. ${copayText} Card on file: No.`
   ))
 })
 

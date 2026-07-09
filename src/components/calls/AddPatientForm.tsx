@@ -136,11 +136,20 @@ export function AddPatientForm({
           <Label htmlFor="dob">Date of birth</Label>
           <Input
             id="dob"
-            placeholder="03/15/1985"
+            placeholder="MM/DD/YYYY"
             value={form.dob}
-            onChange={(e) => update('dob', e.target.value)}
+            inputMode="numeric"
+            maxLength={10}
+            onChange={(e) => {
+              const digits = e.target.value.replace(/\D/g, '').slice(0, 8)
+              let formatted = digits
+              if (digits.length > 4) formatted = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`
+              else if (digits.length > 2) formatted = `${digits.slice(0, 2)}/${digits.slice(2)}`
+              update('dob', formatted)
+            }}
             required
           />
+          <p className="text-[10px] text-muted-foreground">MM/DD/YYYY — e.g. 03/15/1985</p>
         </div>
         <div className="space-y-1.5">
           <Label>Call reason</Label>

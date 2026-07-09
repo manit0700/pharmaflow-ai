@@ -112,13 +112,36 @@ export interface CallInput {
   rxNumber?: string | null
 }
 
+function excelDateToString(v: unknown): string {
+  if (v instanceof Date) {
+    const m = String(v.getMonth() + 1).padStart(2, '0')
+    const d = String(v.getDate()).padStart(2, '0')
+    return `${m}/${d}/${v.getFullYear()}`
+  }
+  // Excel serial number — convert via xlsx
+  if (typeof v === 'number' && v > 0 && v < 200000) {
+    const date = XLSX.SSF.parse_date_code(v)
+    if (date && date.y > 1900) {
+      const m = String(date.m).padStart(2, '0')
+      const d = String(date.d).padStart(2, '0')
+      return `${m}/${d}/${date.y}`
+    }
+  }
+  return String(v ?? '').trim()
+}
+
 function parsePrescriptions(
   primaryName: string,
   primaryCost: number | null,
   additionalText: string | null,
+  primaryRxNumber?: string | null,
 ): { prescriptionsJson: string | null; totalCost: number | null } {
-  const all: Array<{ name: string; cost: number }> = []
-  if (primaryName) all.push({ name: primaryName, cost: primaryCost ?? 0 })
+  const all: Array<{ name: string; rxNumber?: string; cost: number }> = []
+  if (primaryName) {
+    const entry: { name: string; rxNumber?: string; cost: number } = { name: primaryName, cost: primaryCost ?? 0 }
+    if (primaryRxNumber) entry.rxNumber = primaryRxNumber
+    all.push(entry)
+  }
 
   if (additionalText) {
     for (const segment of additionalText.split(';')) {
@@ -216,18 +239,19 @@ function resolvePatientName(mapped: Record<string, string>): string {
 }
 
 export function parseExcelBuffer(buffer: Buffer): ParsedCallRow[] {
-  const workbook = XLSX.read(buffer, { type: 'buffer' })
+  const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true })
   const sheet = workbook.Sheets[workbook.SheetNames[0]!]
   if (!sheet) throw new Error('Excel file has no sheets')
 
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
   if (rows.length === 0) throw new Error('Excel file is empty')
 
-  return rows.map((row, index) => {
+  const parsed = rows.map((row, index) => {
     // Build mapped: apply alias mapping so pharmacy system columns are recognized
     const mapped: Record<string, string> = {}
     for (const [k, v] of Object.entries(row)) {
-      const val = String(v ?? '').trim()
+      // Date cells come as JS Date objects when cellDates:true; convert to MM/DD/YYYY
+      const val = v instanceof Date ? excelDateToString(v) : String(v ?? '').trim()
       const normalized = normalizeHeader(k)
       const aliasTarget = COLUMN_ALIASES[stripKey(k)] ?? COLUMN_ALIASES[normalized.replace(/_/g, '')]
       if (aliasTarget) {
@@ -264,7 +288,7 @@ export function parseExcelBuffer(buffer: Buffer): ParsedCallRow[] {
     const medName = mapped.medication_name || mapped.generic_for || ''
     const additionalText = mapped.additional_prescriptions || null
 
-    const { prescriptionsJson, totalCost } = parsePrescriptions(medName, primaryCost, additionalText)
+    const { prescriptionsJson, totalCost } = parsePrescriptions(medName, primaryCost, additionalText, mapped.rx_number || null)
 
     // Default call_reason to refill_reminder for pharmacy system exports
     const callReason = mapped.call_reason || 'refill_reminder'
@@ -280,6 +304,50 @@ export function parseExcelBuffer(buffer: Buffer): ParsedCallRow[] {
       prescriptionsJson,
       rxNumber: mapped.rx_number || null,
     })
+  })
+
+  return mergeByPatient(parsed)
+}
+
+type RxEntry = { name: string; rxNumber?: string; cost: number }
+
+function mergeByPatient(rows: ParsedCallRow[]): ParsedCallRow[] {
+  const order: string[] = []
+  const groups = new Map<string, ParsedCallRow[]>()
+
+  for (const row of rows) {
+    const key = row.phoneNumber.replace(/\D/g, '') || row.patientName.toLowerCase()
+    if (!groups.has(key)) { groups.set(key, []); order.push(key) }
+    groups.get(key)!.push(row)
+  }
+
+  return order.map((key) => {
+    const group = groups.get(key)!
+    if (group.length === 1) return group[0]!
+
+    // Merge all prescriptions from every row into one array
+    const allRx: RxEntry[] = []
+    for (const row of group) {
+      if (row.prescriptionsJson) {
+        try {
+          const rxs = JSON.parse(row.prescriptionsJson) as RxEntry[]
+          allRx.push(...rxs)
+        } catch { /* skip */ }
+      } else if (row.medicationName) {
+        allRx.push({ name: row.medicationName, rxNumber: row.rxNumber ?? undefined, cost: row.prescriptionCost ?? 0 })
+      }
+    }
+
+    const totalCost = allRx.some((r) => r.cost > 0) ? allRx.reduce((s, r) => s + r.cost, 0) : null
+    const base = group[0]!
+
+    return {
+      ...base,
+      medicationName: allRx.map((r) => r.name).join(', '),
+      prescriptionsJson: allRx.length > 0 ? JSON.stringify(allRx) : null,
+      prescriptionCost: totalCost,
+      rxNumber: null, // individual rx numbers are inside prescriptionsJson
+    }
   })
 }
 

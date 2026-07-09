@@ -64,18 +64,33 @@ function normalizePhone(value: string): string {
   return value.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
 }
 
+function excelDateToString(v: unknown): string {
+  if (v instanceof Date) {
+    const m = String(v.getMonth() + 1).padStart(2, '0')
+    const d = String(v.getDate()).padStart(2, '0')
+    return `${m}/${d}/${v.getFullYear()}`
+  }
+  if (typeof v === 'number' && v > 0 && v < 200000) {
+    const parsed = XLSX.SSF.parse_date_code(v)
+    if (parsed && parsed.y > 1900) {
+      return `${String(parsed.m).padStart(2, '0')}/${String(parsed.d).padStart(2, '0')}/${parsed.y}`
+    }
+  }
+  return String(v ?? '').trim()
+}
+
 function parseWorkbook(buffer: ArrayBuffer, duplicatePhones: Set<string>): PreviewRow[] {
-  const workbook = XLSX.read(buffer, { type: 'array' })
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
   const sheet = workbook.Sheets[workbook.SheetNames[0]!]
   if (!sheet) throw new Error('Excel file has no sheets')
 
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' })
   if (rows.length === 0) throw new Error('Excel file is empty')
 
-  return rows.map((row) => {
+  const parsed = rows.map((row) => {
     const mapped: Record<string, string> = {}
     for (const [k, v] of Object.entries(row)) {
-      const val = String(v ?? '').trim()
+      const val = v instanceof Date ? excelDateToString(v) : String(v ?? '').trim()
       const aliasTarget = COLUMN_ALIASES[stripKey(k)]
       const target = aliasTarget ?? k.trim().toLowerCase().replace(/\s+/g, '_')
       if (!mapped[target]) mapped[target] = val
@@ -101,6 +116,22 @@ function parseWorkbook(buffer: ArrayBuffer, duplicatePhones: Set<string>): Previ
       notes: noteParts.join(' | '),
       duplicate: duplicatePhones.has(normalizePhone(phone)),
     }
+  })
+
+  // Merge duplicate patients (same phone) into one row with all their medications listed
+  const order: string[] = []
+  const groups = new Map<string, PreviewRow[]>()
+  for (const row of parsed) {
+    const key = normalizePhone(row.phoneNumber) || row.patientName.toLowerCase()
+    if (!groups.has(key)) { groups.set(key, []); order.push(key) }
+    groups.get(key)!.push(row)
+  }
+  return order.map((key) => {
+    const group = groups.get(key)!
+    if (group.length === 1) return group[0]!
+    const base = group[0]!
+    const meds = group.map((r) => r.medicationName).filter(Boolean)
+    return { ...base, medicationName: meds.join(', ') }
   })
 }
 

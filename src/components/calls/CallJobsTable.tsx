@@ -34,7 +34,7 @@ function formatResolution(job: CallJob) {
   return 'Waiting'
 }
 
-type RxItem = { name: string; cost: number }
+type RxItem = { name: string; rxNumber?: string; cost: number }
 type ChatMessage = { role: string; content: string }
 
 function parsePrescriptions(json: string | null): RxItem[] | null {
@@ -95,7 +95,10 @@ function ExpandedRow({ job }: { job: CallJob }) {
             <ul className="space-y-0.5 rounded-md border border-border/60 bg-muted/30 p-2">
               {rxList.map((rx, i) => (
                 <li key={i} className="flex justify-between text-xs">
-                  <span>{rx.name}</span>
+                  <span>
+                    {rx.name}
+                    {rx.rxNumber && <span className="ml-1.5 font-mono text-muted-foreground">Rx #{rx.rxNumber}</span>}
+                  </span>
                   {rx.cost > 0 && <span className="text-green-700 dark:text-green-400 font-medium">${rx.cost.toFixed(2)}</span>}
                 </li>
               ))}
@@ -216,6 +219,7 @@ export function CallJobsTable({
         <thead>
           <tr className="border-b text-left text-xs text-muted-foreground">
             <th className="pb-2 pr-3 w-4" />
+            <th className="pb-2 pr-3">Rx #</th>
             <th className="pb-2 pr-3">Patient</th>
             <th className="pb-2 pr-3">Phone</th>
             <th className="pb-2 pr-3">Reason</th>
@@ -248,6 +252,18 @@ export function CallJobsTable({
                       ? <ChevronUp className="h-3.5 w-3.5" />
                       : <ChevronDown className="h-3.5 w-3.5" />}
                   </button>
+                </td>
+
+                {/* Rx # — first visible column */}
+                <td className="py-2.5 pr-3 font-mono text-xs text-muted-foreground">
+                  {(() => {
+                    try {
+                      const rxs = j.prescriptionsJson ? JSON.parse(j.prescriptionsJson) as RxItem[] : null
+                      const nums = rxs?.map((r) => r.rxNumber).filter(Boolean) ?? []
+                      if (nums.length > 0) return nums.join(', ')
+                    } catch { /* fall through */ }
+                    return j.rxNumber || '—'
+                  })()}
                 </td>
 
                 <td className="py-2.5 pr-3">
