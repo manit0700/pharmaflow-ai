@@ -16,8 +16,30 @@ interface PreviewRow {
   duplicate: boolean
 }
 
-function normalizeHeader(h: string): string {
-  return h.trim().toLowerCase().replace(/\s+/g, '_')
+const COLUMN_ALIASES: Record<string, string> = {
+  patientname: 'patient_name', patientfirstname: '_first_name', firstname: '_first_name',
+  patientlastname: '_last_name', lastname: '_last_name', name: 'patient_name',
+  patientphone: 'phone_number', patientcell: 'phone_number', cellphone: 'phone_number',
+  phone: 'phone_number', phonenumber: 'phone_number', mobile: 'phone_number',
+  patientdob: 'dob', dateofbirth: 'dob', birthdate: 'dob',
+  drugname: 'medication_name', drug: 'medication_name', medicationname: 'medication_name',
+  medication: 'medication_name', genericfor: 'medication_name',
+  rxnumber: 'rx_number', rxno: 'rx_number', prescriptionnumber: 'rx_number',
+  patpay: 'medication_cost', patientpay: 'medication_cost', rxcost: 'medication_cost',
+  aaccost: 'medication_cost', medicationcost: 'medication_cost',
+  doctorname: 'doctor_name', prescribername: 'doctor_name', physician: 'doctor_name',
+  callreason: 'call_reason', reason: 'call_reason',
+  rxcomment: 'notes', rxnotes: 'notes', patientnotes: 'notes', comment: 'notes', comments: 'notes',
+  rxqty: 'rx_qty', quantity: 'rx_qty', qty: 'rx_qty',
+  refills: 'refills', refillsremaining: 'refills',
+  dayssupply: 'days_supply', nextfilldate: 'next_fill_date',
+  rph: 'rph', rxdate: 'rx_date',
+  patientstreet: 'address_street', patientcity: 'address_city',
+  patientstate: 'address_state', patientzip: 'address_zip',
+}
+
+function stripKey(h: string): string {
+  return h.trim().toLowerCase().replace(/[\s_-]/g, '')
 }
 
 function normalizePhone(value: string): string {
@@ -35,16 +57,36 @@ function parseWorkbook(buffer: ArrayBuffer, duplicatePhones: Set<string>): Previ
   return rows.map((row) => {
     const mapped: Record<string, string> = {}
     for (const [k, v] of Object.entries(row)) {
-      mapped[normalizeHeader(k)] = String(v ?? '').trim()
+      const val = String(v ?? '').trim()
+      const aliasTarget = COLUMN_ALIASES[stripKey(k)]
+      const target = aliasTarget ?? k.trim().toLowerCase().replace(/\s+/g, '_')
+      if (!mapped[target]) mapped[target] = val
     }
+
+    // Combine first + last name if full name not present
+    if (!mapped.patient_name) {
+      const combined = [mapped._first_name, mapped._last_name].filter(Boolean).join(' ')
+      if (combined) mapped.patient_name = combined
+    }
+
+    // Build notes from metadata fields
+    const noteParts: string[] = []
+    if (mapped.notes) noteParts.push(mapped.notes)
+    if (mapped.doctor_name) noteParts.push(`Dr: ${mapped.doctor_name}`)
+    if (mapped.rx_qty) noteParts.push(`Qty: ${mapped.rx_qty}`)
+    if (mapped.refills) noteParts.push(`Refills: ${mapped.refills}`)
+    if (mapped.days_supply) noteParts.push(`Days: ${mapped.days_supply}`)
+    if (mapped.next_fill_date) noteParts.push(`Next fill: ${mapped.next_fill_date}`)
+
+    const phone = mapped.phone_number ?? ''
     return {
       patientName: mapped.patient_name ?? '',
-      phoneNumber: mapped.phone_number ?? '',
+      phoneNumber: phone,
       dob: mapped.dob ?? '',
       medicationName: mapped.medication_name ?? '',
-      callReason: mapped.call_reason ?? '',
-      notes: mapped.notes ?? '',
-      duplicate: duplicatePhones.has(normalizePhone(mapped.phone_number ?? '')),
+      callReason: mapped.call_reason || 'refill_reminder',
+      notes: noteParts.join(' | '),
+      duplicate: duplicatePhones.has(normalizePhone(phone)),
     }
   })
 }
