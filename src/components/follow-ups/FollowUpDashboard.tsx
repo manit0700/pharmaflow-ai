@@ -26,6 +26,7 @@ import {
 } from './FollowUpHelpers'
 import type { AssignedTeam, CreateTaskInput, FollowUpFilters, FollowUpPriority } from '@/types/followUps'
 import { mapPriorityToApi } from '@/utils/staffTaskMapper'
+import { markStaffComplete } from '@/utils/api'
 
 type DrawerMode = 'create' | 'note' | 'assign' | 'reschedule' | null
 
@@ -112,8 +113,14 @@ export function FollowUpDashboard() {
   }
 
   const handleMarkComplete = async (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId)
+    const completedBy = window.prompt('Staff name for completion?')?.trim()
+    if (!completedBy) return
+    if (task?.relatedCallId) {
+      await markStaffComplete(task.relatedCallId, completedBy)
+    }
     await applyTaskUpdate(taskId, { status: 'completed' })
-    toast.success('Task completed')
+    toast.success(`Completed by ${completedBy}`)
   }
 
   const handleCancelTask = async () => {

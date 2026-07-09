@@ -30,6 +30,7 @@ export interface CallJob {
   validationError: string | null
   callStatus: string
   twilioCallSid: string | null
+  vapiCallId?: string | null
   callAttemptedAt: string | null
   callCompletedAt: string | null
   callDuration: number | null
@@ -40,14 +41,13 @@ export interface CallJob {
   messagesJson: string | null
   aiConfidence: number | null
   resolutionStatus: string | null
+  conversationState?: string | null; verificationPassed?: boolean
+  paymentChoice?: string | null; paymentStatus?: string
+  fulfillmentChoice?: string | null; deliveryAddress?: string | null
+  staffCompleted?: boolean; staffCompletedAt?: string | null; staffCompletedBy?: string | null
   retryStatus?: string | null
   scheduledFor?: string | null
-  retryRecommendation?: {
-    shouldRetry: boolean
-    recommendedRetryAt: string | null
-    reason: string
-    nextActionLabel: string
-  } | null
+  retryRecommendation?: { shouldRetry: boolean; recommendedRetryAt: string | null; reason: string; nextActionLabel: string } | null
   staffTasks?: StaffTask[]
   staffFollowUpNeeded: boolean
   followUpReason: string | null
@@ -62,15 +62,7 @@ export interface CallJob {
 export interface StaffTask {
   id: string
   callJobId?: string | null
-  callJob?: {
-    id: string
-    callReason?: string | null
-    callStatus?: string | null
-    callAttemptedAt?: string | null
-    callCompletedAt?: string | null
-    patientResponse?: string | null
-    followUpReason?: string | null
-  } | null
+  callJob?: { id: string; callReason?: string | null; callStatus?: string | null; callAttemptedAt?: string | null; callCompletedAt?: string | null; patientResponse?: string | null; followUpReason?: string | null } | null
   patientName: string
   phoneNumber: string
   medicationName?: string | null
@@ -398,6 +390,7 @@ export interface ConfigSettings {
   twilioVoice: string
   twilioLanguage: string
   enableSmsFollowup?: boolean
+  vapiConfigured?: boolean; vapiAssistantId?: string
   configSource?: string
 }
 
@@ -460,6 +453,14 @@ export async function fetchSchedulerStatus(): Promise<SchedulerStatus> {
 
 export async function cancelRetry(id: string): Promise<CallJob> {
   return request<CallJob>(`/call-jobs/${id}/cancel-retry`, { method: 'POST' })
+}
+
+export async function markStaffComplete(id: string, completedBy: string): Promise<CallJob> {
+  return request<CallJob>(`/call-jobs/${id}/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ completedBy }),
+  })
 }
 
 export async function updateStaffNotes(id: string, staffNotes: string): Promise<CallJob> {

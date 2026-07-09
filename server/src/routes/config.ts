@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { config, updateConfig } from '../config.js'
+import { config, isVapiConfigured, updateConfig } from '../config.js'
 import { phoneProvider } from '../services/phoneProvider.js'
 import { checkCallerIdStatus, invalidateCallerIdCache } from '../services/callerIdCheck.js'
 import { getTwilioClient } from '../lib/twilioAuth.js'
@@ -15,6 +15,8 @@ configRouter.get('/config', (_req, res) => {
     twilioVoice: config.twilioVoice,
     twilioLanguage: config.twilioLanguage,
     enableSmsFollowup: config.enableSmsFollowup,
+    vapiConfigured: isVapiConfigured(),
+    vapiAssistantId: config.vapiAssistantId,
     configSource: config.configSource,
   })
 })
@@ -101,6 +103,8 @@ configRouter.patch('/config', (req, res) => {
         twilioVoice: config.twilioVoice,
         twilioLanguage: config.twilioLanguage,
         enableSmsFollowup: config.enableSmsFollowup,
+        vapiConfigured: isVapiConfigured(),
+        vapiAssistantId: config.vapiAssistantId,
       },
     })
   } catch (e) {

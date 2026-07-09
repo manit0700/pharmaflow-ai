@@ -324,6 +324,32 @@ callJobsRouter.delete('/call-jobs/:id', async (req, res) => {
   }
 })
 
+callJobsRouter.post('/call-jobs/:id/complete', async (req, res) => {
+  try {
+    const completedBy = String((req.body as Record<string, unknown>).completedBy ?? '').trim()
+    if (!completedBy) {
+      res.status(400).json({ error: 'completedBy is required' })
+      return
+    }
+    const now = new Date()
+    const job = await prisma.callJob.update({
+      where: { id: req.params.id },
+      data: {
+        staffCompleted: true,
+        staffCompletedAt: now,
+        staffCompletedBy: completedBy,
+      },
+    })
+    await prisma.staffTask.updateMany({
+      where: { callJobId: req.params.id, status: { in: ['open', 'in_progress'] } },
+      data: { status: 'resolved', completedAt: now },
+    })
+    res.json(job)
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Staff completion failed' })
+  }
+})
+
 function fallbackJobFromBody(jobId: string, body?: Record<string, unknown>): RunnableCallJob | null {
   const raw = body?.job
   if (!raw || typeof raw !== 'object') return null

@@ -22,6 +22,11 @@ const DETAIL_LABEL: Record<string, string> = {
   patientResponse: 'Patient answer',
   phone: 'Phone number',
   callStatus: 'Call status',
+  paymentStatus: 'Payment status',
+  paymentChoice: 'Payment choice',
+  fulfillmentChoice: 'Fulfillment',
+  deliveryAddress: 'Delivery address',
+  staffCompleted: 'Staff completed',
   dobVerified: 'Identity',
   aiTurns: 'AI turns',
 }
@@ -318,6 +323,9 @@ export function ConversationsPage() {
                   )}
                   {selected.escalationReason && selected.extractedData.callStatus !== 'voicemail' && selected.extractedData.callStatus !== 'needs_review' && (
                     <Badge variant="warning">Follow-up: {selected.escalationReason}</Badge>
+                  )}
+                  {selected.extractedData.staffCompleted && (
+                    <Badge variant="success">Staff complete</Badge>
                   )}
                 </div>
 

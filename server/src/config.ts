@@ -35,12 +35,19 @@ export const config = {
   /** Optional: OpenAI for AI-assisted call turns */
   openaiApiKey: process.env.OPENAI_API_KEY ?? '',
   callAiModel: process.env.CALL_AI_MODEL ?? 'gpt-4o-mini',
+  vapiApiKey: process.env.VAPI_API_KEY ?? '',
+  vapiAssistantId: process.env.VAPI_ASSISTANT_ID ?? '',
+  vapiPhoneNumberId: process.env.VAPI_PHONE_NUMBER_ID ?? '',
   /** Outbound call script mode: dtmf (keypad) or ai (speech + OpenAI) */
   callMode: (process.env.CALL_MODE === 'ai' ? 'ai' : 'dtmf') as 'dtmf' | 'ai',
   /** Optional call safety window (America/Chicago) */
   enforceBusinessHours: process.env.ENFORCE_BUSINESS_HOURS === 'true',
   businessHoursStart: Number(process.env.BUSINESS_HOURS_START ?? 8),
   businessHoursEnd: Number(process.env.BUSINESS_HOURS_END ?? 20),
+}
+
+export function isVapiConfigured(): boolean {
+  return Boolean(config.vapiApiKey && config.vapiAssistantId && config.vapiPhoneNumberId)
 }
 
 const ENV_KEY_MAP: Record<string, string> = {

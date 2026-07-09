@@ -5,6 +5,7 @@ import { buildAiSummary } from './script.js'
 import { needsStaffFollowUp, normalizePhone } from './safety.js'
 import { phoneProvider } from './phoneProvider.js'
 import { assertCallerIdUsable } from './callerIdCheck.js'
+import { isVapiConfigured, startVapiCall } from './vapi.js'
 
 const ACTIVE_CALL_STATUSES = new Set(['dialing', 'queued_live', 'ringing', 'in_progress'])
 
@@ -88,7 +89,7 @@ export async function runCall(jobId: string, fallbackJob?: RunnableCallJob | nul
 
   // Validate caller ID before marking the job as dialing.
   // Skip in test mode — no real call is placed.
-  if (!config.autoCallTestMode) {
+  if (!config.autoCallTestMode && !isVapiConfigured()) {
     await assertCallerIdUsable()
   }
 
@@ -107,7 +108,19 @@ export async function runCall(jobId: string, fallbackJob?: RunnableCallJob | nul
   try {
     const result = config.autoCallTestMode
       ? { testMode: true as const, sid: `TEST_${job.id}_${Date.now()}` }
-      : await phoneProvider.startOutboundCall({
+      : isVapiConfigured()
+        ? await startVapiCall({
+            to: job.phoneNumber,
+            callJobId: job.id,
+            patientName: job.patientName,
+            metadata: {
+              patientName: job.patientName,
+              dob: job.dob,
+              medicationName: job.medicationName,
+              callReason: job.callReason,
+            },
+          }).then((call) => ({ sid: call.id, provider: 'vapi' as const }))
+        : await phoneProvider.startOutboundCall({
           to: job.phoneNumber,
           callJobId: job.id,
           callReason: job.callReason as CallReason,
@@ -141,6 +154,7 @@ export async function runCall(jobId: string, fallbackJob?: RunnableCallJob | nul
     await updateCallJobIfPresent(jobId, {
       callStatus: updated.callStatus,
       twilioCallSid: sid,
+      vapiCallId: 'provider' in result && result.provider === 'vapi' ? sid : undefined,
       callAttemptedAt: updated.callAttemptedAt,
       callCompletedAt: updated.callCompletedAt,
       callDuration: updated.callDuration,
@@ -154,7 +168,7 @@ export async function runCall(jobId: string, fallbackJob?: RunnableCallJob | nul
       callJobId: jobId,
       twilioCallSid: sid,
       eventType: isTest ? 'test_call_simulated' : 'call_initiated',
-      eventPayload: JSON.stringify({ mode: isTest ? 'test' : 'live' }),
+      eventPayload: JSON.stringify({ mode: isTest ? 'test' : 'live', provider: 'provider' in result ? result.provider : 'twilio' }),
     })
 
     if (isTest) {

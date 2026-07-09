@@ -10,12 +10,14 @@ import {
   Phone,
   Settings,
   Users,
+  Megaphone,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const nav = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/patients', icon: Users, label: 'Patients' },
+  { to: '/campaigns', icon: Megaphone, label: 'Campaigns' },
   { to: '/calls', icon: Phone, label: 'Call Recordings' },
   { to: '/workflows', icon: GitBranch, label: 'Call flow' },
   { to: '/conversations', icon: MessageSquare, label: 'Call history' },

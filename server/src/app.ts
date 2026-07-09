@@ -7,6 +7,8 @@ import { tasksRouter } from './routes/tasks.js'
 import { twilioRouter } from './routes/twilio.js'
 import { analyticsRouter } from './routes/analytics.js'
 import { configRouter } from './routes/config.js'
+import { campaignsRouter } from './routes/campaigns.js'
+import { vapiRouter } from './routes/vapi.js'
 import { ensureRuntimeDb, shouldInitializeRuntimeDb } from './lib/runtimeDb.js'
 
 export function createApp() {
@@ -38,6 +40,8 @@ export function createApp() {
   app.use('/api', twilioRouter)
   app.use('/api', analyticsRouter)
   app.use('/api', configRouter)
+  app.use('/api', campaignsRouter)
+  app.use('/api/vapi', vapiRouter)
 
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     void _next

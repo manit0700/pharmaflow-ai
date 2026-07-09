@@ -76,6 +76,12 @@ export function SettingsPage() {
     return raw.trim()
   }
 
+  function maskValue(value?: string): string {
+    if (!value) return 'Not set'
+    if (value.length <= 8) return '••••'
+    return `${value.slice(0, 4)}••••${value.slice(-4)}`
+  }
+
   async function handleSave() {
     if (!settings) return
     setSaving(true)
@@ -315,6 +321,28 @@ export function SettingsPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">VAPI Configuration</CardTitle>
+              <CardDescription>AI voice-call credentials are read from server/local.config.json or environment variables</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">VAPI configured</span>
+                <Badge variant={settings?.vapiConfigured ? 'success' : 'secondary'}>
+                  {settings?.vapiConfigured ? 'Yes' : 'No'}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-muted-foreground">Assistant ID</span>
+                <span className="font-mono text-xs">{maskValue(settings?.vapiAssistantId)}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                VAPI credentials are set in server/local.config.json. Twilio remains available for SMS and fallback calls.
+              </p>
             </CardContent>
           </Card>
 

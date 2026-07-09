@@ -9,6 +9,7 @@ import { AnalyticsPage } from '@/pages/AnalyticsPage'
 import { CallOperationsPage } from '@/pages/CallOperationsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { PatientsPage } from '@/pages/PatientsPage'
+import { CampaignsPage } from '@/pages/CampaignsPage'
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="patients" element={<PatientsPage />} />
+          <Route path="campaigns" element={<CampaignsPage />} />
           <Route path="workflows" element={<CallFlowPage />} />
           <Route path="calls" element={<CallOperationsPage />} />
           <Route path="conversations" element={<ConversationsPage />} />
