@@ -15,6 +15,7 @@ model CallJob {
   phoneNumber         String
   dob                 String
   medicationName      String
+  rxNumber            String?
   callReason          String
   notes               String?
   prescriptionCost    Float?

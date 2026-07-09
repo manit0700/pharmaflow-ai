@@ -23,6 +23,7 @@ export interface CallJob {
   phoneNumber: string
   dob: string
   medicationName: string
+  rxNumber: string | null
   callReason: string
   notes: string | null
   staffNotes: string | null
@@ -205,6 +206,7 @@ export interface CreateCallJobInput {
   phoneNumber: string
   dob: string
   medicationName: string
+  rxNumber?: string | null
   callReason: string
   notes?: string
   prescriptionCost?: number | null
@@ -220,6 +222,7 @@ export async function createCallJob(input: CreateCallJobInput): Promise<CallJob>
       phoneNumber: input.phoneNumber,
       dob: input.dob,
       medicationName: input.medicationName,
+      rxNumber: input.rxNumber ?? null,
       callReason: input.callReason,
       notes: input.notes || null,
       prescriptionCost: input.prescriptionCost ?? null,

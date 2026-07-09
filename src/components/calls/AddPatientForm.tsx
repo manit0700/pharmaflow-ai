@@ -16,6 +16,7 @@ import type { CreateCallJobInput } from '@/utils/api'
 
 interface RxRow {
   name: string
+  rxNumber: string
   cost: string
 }
 
@@ -28,6 +29,7 @@ const emptyForm = (): FormState => ({
   phoneNumber: '',
   dob: '',
   medicationName: '',
+  rxNumber: '',
   callReason: 'refill_reminder',
   notes: '',
   prescriptionCost: null,
@@ -37,15 +39,16 @@ const emptyForm = (): FormState => ({
 
 function buildPrescriptionsJson(
   medicationName: string,
+  primaryRxNumber: string | null | undefined,
   primaryCost: number | null,
   additionalRx: RxRow[],
 ): { prescriptionsJson: string | null; prescriptionCost: number | null } {
-  const all: Array<{ name: string; cost: number }> = []
-  if (medicationName.trim()) all.push({ name: medicationName.trim(), cost: primaryCost ?? 0 })
+  const all: Array<{ name: string; rxNumber?: string; cost: number }> = []
+  if (medicationName.trim()) all.push({ name: medicationName.trim(), rxNumber: primaryRxNumber?.trim() || undefined, cost: primaryCost ?? 0 })
   for (const row of additionalRx) {
     const name = row.name.trim()
     if (!name) continue
-    all.push({ name, cost: parseFloat(row.cost) || 0 })
+    all.push({ name, rxNumber: row.rxNumber.trim() || undefined, cost: parseFloat(row.cost) || 0 })
   }
   if (all.length === 0) return { prescriptionsJson: null, prescriptionCost: null }
   const totalCost = all.some((p) => p.cost > 0) ? all.reduce((s, p) => s + p.cost, 0) : null
@@ -67,7 +70,7 @@ export function AddPatientForm({
   }
 
   const addRxRow = () => {
-    setForm((f) => ({ ...f, additionalRx: [...f.additionalRx, { name: '', cost: '' }] }))
+    setForm((f) => ({ ...f, additionalRx: [...f.additionalRx, { name: '', rxNumber: '', cost: '' }] }))
   }
 
   const updateRxRow = (index: number, field: keyof RxRow, value: string) => {
@@ -88,6 +91,7 @@ export function AddPatientForm({
     try {
       const { prescriptionsJson, prescriptionCost } = buildPrescriptionsJson(
         form.medicationName,
+        form.rxNumber,
         form.prescriptionCost ?? null,
         form.additionalRx,
       )
@@ -182,6 +186,13 @@ export function AddPatientForm({
             className="flex-1"
           />
           <Input
+            placeholder="Rx #"
+            value={form.rxNumber ?? ''}
+            onChange={(e) => update('rxNumber', e.target.value)}
+            className="w-28"
+            title="Prescription number"
+          />
+          <Input
             type="number"
             min="0"
             step="0.01"
@@ -204,6 +215,13 @@ export function AddPatientForm({
               value={rx.name}
               onChange={(e) => updateRxRow(i, 'name', e.target.value)}
               className="flex-1"
+            />
+            <Input
+              placeholder="Rx #"
+              value={rx.rxNumber}
+              onChange={(e) => updateRxRow(i, 'rxNumber', e.target.value)}
+              className="w-28"
+              title="Prescription number"
             />
             <Input
               type="number"

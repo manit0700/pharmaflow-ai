@@ -56,7 +56,9 @@ export function scriptContextFromJob(job: {
   let prescriptions: ScriptContext['prescriptions']
   if (job.prescriptionsJson) {
     try {
-      prescriptions = JSON.parse(job.prescriptionsJson) as ScriptContext['prescriptions']
+      const parsed = JSON.parse(job.prescriptionsJson) as Array<{ name: string; cost: number; rxNumber?: string }>
+      // Strip rxNumber — it is private and must never be spoken on a call
+      prescriptions = parsed.map(({ name, cost }) => ({ name, cost }))
     } catch { /* ignore */ }
   }
   return {

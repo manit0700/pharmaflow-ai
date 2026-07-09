@@ -129,7 +129,7 @@ export function CallJobDetailPanel({
                   )}
                 </ul>
               ) : (
-                <span>{job.medicationName}{job.prescriptionCost != null ? ` — $${job.prescriptionCost.toFixed(2)}` : ''}</span>
+                <span>{job.medicationName}{job.rxNumber ? ` · Rx #${job.rxNumber}` : ''}{job.prescriptionCost != null ? ` — $${job.prescriptionCost.toFixed(2)}` : ''}</span>
               )}
             </dd>
           </div>

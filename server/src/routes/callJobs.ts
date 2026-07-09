@@ -41,6 +41,7 @@ callJobsRouter.post('/call-jobs', async (req, res) => {
       phoneNumber: row.phoneNumber,
       dob: row.dob,
       medicationName: row.medicationName,
+      rxNumber: body.rxNumber != null ? String(body.rxNumber).trim() || null : null,
       callReason: row.callReason,
       notes: row.notes,
       prescriptionCost: row.prescriptionCost,

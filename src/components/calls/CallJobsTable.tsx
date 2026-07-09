@@ -107,7 +107,11 @@ function ExpandedRow({ job }: { job: CallJob }) {
               )}
             </ul>
           ) : (
-            <p className="text-xs">{job.medicationName}{job.prescriptionCost != null ? ` — $${job.prescriptionCost.toFixed(2)}` : ''}</p>
+            <p className="text-xs">
+              {job.medicationName}
+              {job.rxNumber ? <span className="ml-1 text-muted-foreground">· Rx #{job.rxNumber}</span> : null}
+              {job.prescriptionCost != null ? ` — $${job.prescriptionCost.toFixed(2)}` : ''}
+            </p>
           )}
         </div>
 
@@ -263,7 +267,7 @@ export function CallJobsTable({
                         return <div className="text-xs text-muted-foreground max-w-44">{rxs.map((r) => r.name).join(', ')}</div>
                       }
                     } catch { /* fall through */ }
-                    return <div className="text-xs text-muted-foreground truncate max-w-40">{j.medicationName}</div>
+                    return <div className="text-xs text-muted-foreground truncate max-w-40">{j.medicationName}{j.rxNumber ? ` · Rx #${j.rxNumber}` : ''}</div>
                   })()}
                   {j.prescriptionCost != null && (
                     <div className="text-xs font-medium text-green-700 dark:text-green-400">
