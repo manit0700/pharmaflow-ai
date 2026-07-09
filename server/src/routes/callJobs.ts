@@ -263,11 +263,13 @@ callJobsRouter.patch('/call-jobs/:id', async (req, res) => {
       }
     }
 
+    const { recordingUrl } = req.body as { recordingUrl?: string }
     const data: Parameters<typeof prisma.callJob.update>[0]['data'] = {}
     if (status) data.callStatus = status
     if (notes !== undefined) data.notes = notes || null
     if (staffNotes !== undefined) data.staffNotes = staffNotes || null
     if (followUpReason !== undefined) data.followUpReason = followUpReason || null
+    if (recordingUrl !== undefined) data.recordingUrl = recordingUrl || null
 
     if (status === 'completed') {
       data.callCompletedAt = new Date()

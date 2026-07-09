@@ -95,6 +95,9 @@ vapiRouter.post('/webhook', async (req, res) => {
       const endedReason =
         stringAt(payload, ['message', 'endedReason']) ??
         stringAt(payload, ['endedReason'])
+      const recordingUrl =
+        stringAt(payload, ['message', 'artifact', 'recordingUrl']) ??
+        stringAt(payload, ['artifact', 'recordingUrl'])
       await prisma.callJob.update({
         where: { id: callJobId },
         data: {
@@ -103,6 +106,7 @@ vapiRouter.post('/webhook', async (req, res) => {
           transcriptJson: transcriptFrom(payload),
           messagesJson: messagesJson ?? undefined,
           aiSummary: summaryText ?? undefined,
+          recordingUrl: recordingUrl ?? undefined,
           conversationState: 'COMPLETED',
           resolutionStatus: 'resolved',
         },

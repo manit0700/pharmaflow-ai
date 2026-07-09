@@ -8,18 +8,50 @@ export const vapiToolsRouter = Router()
 
 type VapiToolBody = Record<string, unknown>
 
-// VAPI sends call.id and call.metadata.callJobId automatically in every tool call
+// VAPI wraps tool call payloads in a {message: {...}} envelope.
+// call object (id + metadata) lives at body.message.call.
+// Tool arguments live at body.message.toolCallList[0].function.arguments.
+function msgObj(body: VapiToolBody): Record<string, unknown> | undefined {
+  return body.message as Record<string, unknown> | undefined
+}
+
+function callObj(body: VapiToolBody): Record<string, unknown> | undefined {
+  return (msgObj(body)?.call ?? body.call) as Record<string, unknown> | undefined
+}
+
+function toolArgs(body: VapiToolBody): Record<string, unknown> {
+  const msg = msgObj(body)
+  const list = (msg?.toolCallList ?? msg?.toolCalls) as Array<Record<string, unknown>> | undefined
+  if (Array.isArray(list) && list.length > 0) {
+    const args = (list[0]?.function as Record<string, unknown>)?.arguments
+    if (args && typeof args === 'object') return args as Record<string, unknown>
+  }
+  return body
+}
+
+// VAPI requires {results: [{toolCallId, result}]} — plain JSON objects return "No result returned"
+function toolCallId(body: VapiToolBody): string | undefined {
+  const msg = msgObj(body)
+  const list = (msg?.toolCallList ?? msg?.toolCalls) as Array<Record<string, unknown>> | undefined
+  return Array.isArray(list) && list.length > 0 ? String(list[0]?.id ?? '') : undefined
+}
+
+function vapiResult(id: string | undefined, result: string): object {
+  return { results: [{ toolCallId: id, result }] }
+}
+
 function extractCallId(body: VapiToolBody): string | null {
+  const call = callObj(body)
+  const fromCall = typeof call?.id === 'string' ? call.id : null
   const direct = typeof body.callId === 'string' ? body.callId : null
-  const fromCall = typeof (body.call as Record<string, unknown>)?.id === 'string'
-    ? String((body.call as Record<string, unknown>).id)
-    : null
-  return direct || fromCall || null
+  return fromCall || direct || null
 }
 
 function extractCallJobId(body: VapiToolBody): string | null {
-  const meta = (body.call as Record<string, unknown>)?.metadata as Record<string, unknown> | undefined
-  return (typeof meta?.callJobId === 'string' ? meta.callJobId : null) ?? extractCallId(body)
+  const call = callObj(body)
+  const meta = call?.metadata as Record<string, unknown> | undefined
+  const fromMeta = typeof meta?.callJobId === 'string' ? meta.callJobId : null
+  return fromMeta ?? extractCallId(body)
 }
 
 async function findCallJob(callId: string) {
@@ -32,21 +64,31 @@ function copayAmount(job: { prescriptionCost: number | null }) {
   return job.prescriptionCost ?? null
 }
 
-vapiToolsRouter.post('/tools/verify-dob', async (req, res) => {
+vapiToolsRouter.post(['/tools/verify-dob', '/tools/verify-patient', '/tools/verifyPatient'], async (req, res) => {
   const body = req.body as VapiToolBody
-  const dateOfBirth = typeof body.dateOfBirth === 'string' ? body.dateOfBirth : null
+  console.log('[vapi:verify-dob] raw body:', JSON.stringify(body).slice(0, 2000))
+  const args = toolArgs(body)
+  const tcId = toolCallId(body)
+  const dateOfBirth = typeof args.dateOfBirth === 'string' ? args.dateOfBirth : null
   const callId = extractCallJobId(body) ?? extractCallId(body)
+  console.log('[vapi:verify-dob] extracted callId:', callId, '| dob:', dateOfBirth)
+
   const job = callId ? await findCallJob(callId) : null
-  if (!job) { res.status(404).json({ verified: false, message: 'Call job not found' }); return }
+  if (!job) {
+    console.log('[vapi:verify-dob] job NOT FOUND for callId:', callId)
+    res.json(vapiResult(tcId, 'Verification failed: call session not found. Pharmacy staff will follow up.'))
+    return
+  }
 
   const verified = verifyDob(String(dateOfBirth ?? ''), job.dob)
   console.log(`[vapi:verify-dob] job=${job.id} dob_provided=${dateOfBirth} dob_on_file=${job.dob} verified=${verified}`)
+
   if (!verified) {
     await prisma.callJob.update({
       where: { id: job.id },
       data: { staffFollowUpNeeded: true, followUpReason: 'DOB did not match during VAPI call' },
     })
-    res.json({ verified: false, message: 'DOB did not match' })
+    res.json(vapiResult(tcId, 'Verification failed: the date of birth did not match our records. Please ask the patient to try again.'))
     return
   }
 
@@ -54,21 +96,25 @@ vapiToolsRouter.post('/tools/verify-dob', async (req, res) => {
     where: { id: job.id },
     data: { conversationState: 'REFILL_DISCUSSION', verificationPassed: true },
   })
-  res.json({
-    verified: true,
-    patientName: updated.patientName,
-    medicationName: updated.medicationName,
-    copayAmount: copayAmount(updated),
-    hasCardOnFile: false,
-  })
+
+  const copay = copayAmount(updated)
+  const copayText = copay != null ? `Copay amount: $${copay}.` : 'No copay on file.'
+  res.json(vapiResult(tcId,
+    `Verification successful. Patient name: ${updated.patientName}. Medication: ${updated.medicationName || 'on file'}. ${copayText} Card on file: No.`
+  ))
 })
 
 vapiToolsRouter.post('/tools/confirm-refill', async (req, res) => {
   const body = req.body as VapiToolBody
   const callId = extractCallJobId(body) ?? extractCallId(body)
-  const confirmed = body.confirmed === true || body.confirmed === 'true'
+  const args = toolArgs(body)
+  const tcId = toolCallId(body)
+  const confirmed = args.confirmed === true || args.confirmed === 'true'
   const job = callId ? await findCallJob(callId) : null
-  if (!job) { res.status(404).json({ error: 'Call job not found' }); return }
+  if (!job) {
+    res.json(vapiResult(tcId, 'Error: call session not found.'))
+    return
+  }
 
   if (!confirmed) {
     await prisma.callJob.update({
@@ -80,7 +126,7 @@ vapiToolsRouter.post('/tools/confirm-refill', async (req, res) => {
         callCompletedAt: new Date(),
       },
     })
-    res.json({ confirmed: false })
+    res.json(vapiResult(tcId, 'Refill declined. Patient is not ready for a refill at this time.'))
     return
   }
 
@@ -88,19 +134,22 @@ vapiToolsRouter.post('/tools/confirm-refill', async (req, res) => {
     where: { id: job.id },
     data: { patientResponse: 'Confirmed refill — process today', conversationState: 'PAYMENT_SELECTION' },
   })
-  res.json({ confirmed: true, copayAmount: copayAmount(updated), hasCardOnFile: false })
+  const copay = copayAmount(updated)
+  const copayText = copay != null ? `Copay amount: $${copay}.` : 'No copay amount on file.'
+  res.json(vapiResult(tcId, `Refill confirmed. ${copayText} Card on file: No. Please ask for payment preference: payment link or card on file.`))
 })
 
 vapiToolsRouter.post('/tools/select-payment', async (req, res) => {
   const body = req.body as VapiToolBody
   const callId = extractCallJobId(body) ?? extractCallId(body)
-  // Normalize VAPI enum (PAYMENT_LINK / CARD_ON_FILE) to our internal values
-  const raw = String(body.choice ?? body.paymentChoice ?? '').toLowerCase().replace(/_/g, '_')
+  const args = toolArgs(body)
+  const tcId = toolCallId(body)
+  const raw = String(args.choice ?? args.paymentChoice ?? '').toLowerCase()
   const choice = (raw === 'payment_link' || raw === 'card_on_file') ? raw as 'card_on_file' | 'payment_link'
     : raw.includes('link') ? 'payment_link' : raw.includes('card') ? 'card_on_file' : null
   const job = callId ? await findCallJob(callId) : null
   if (!job || !choice) {
-    res.status(400).json({ error: 'Valid callId and payment choice are required' })
+    res.json(vapiResult(tcId, 'Error: could not record payment preference. Please ask the patient again.'))
     return
   }
   await prisma.callJob.update({
@@ -113,19 +162,21 @@ vapiToolsRouter.post('/tools/select-payment', async (req, res) => {
       followUpReason: choice === 'payment_link' ? 'Patient requested payment link' : job.followUpReason,
     },
   })
-  res.json({ success: true, choice })
+  const label = choice === 'payment_link' ? 'payment link' : 'card on file'
+  res.json(vapiResult(tcId, `Payment preference recorded: ${label}. Now ask whether the patient prefers pickup or home delivery.`))
 })
 
 vapiToolsRouter.post('/tools/select-fulfillment', async (req, res) => {
   const body = req.body as VapiToolBody
   const callId = extractCallJobId(body) ?? extractCallId(body)
-  // Normalize VAPI enum (PICKUP / DELIVERY) to our internal values
-  const raw = String(body.choice ?? body.fulfillmentChoice ?? '').toLowerCase()
+  const args = toolArgs(body)
+  const tcId = toolCallId(body)
+  const raw = String(args.choice ?? args.fulfillmentChoice ?? '').toLowerCase()
   const choice = raw === 'pickup' || raw === 'delivery' ? raw : null
-  const deliveryAddress = typeof body.deliveryAddress === 'string' ? body.deliveryAddress : undefined
+  const deliveryAddress = typeof args.deliveryAddress === 'string' ? args.deliveryAddress : undefined
   const job = callId ? await findCallJob(callId) : null
   if (!job || !choice) {
-    res.status(400).json({ error: 'Valid callId and fulfillment choice are required' })
+    res.json(vapiResult(tcId, 'Error: could not record fulfillment preference. Please ask the patient again.'))
     return
   }
   const updated = await prisma.callJob.update({
@@ -147,15 +198,21 @@ vapiToolsRouter.post('/tools/select-fulfillment', async (req, res) => {
     callReason: updated.callReason,
     patientResponse: updated.patientResponse,
   }).catch(() => 'failed')
-  res.json({ success: true })
+  const label = choice === 'pickup' ? 'pharmacy pickup' : `home delivery${deliveryAddress ? ` to ${deliveryAddress}` : ''}`
+  res.json(vapiResult(tcId, `Fulfillment preference recorded: ${label}. All preferences have been saved. Pharmacy staff will complete the next steps.`))
 })
 
 vapiToolsRouter.post('/tools/request-escalation', async (req, res) => {
   const body = req.body as VapiToolBody
   const callId = extractCallJobId(body) ?? extractCallId(body)
-  const reason = typeof body.reason === 'string' ? body.reason : undefined
+  const args = toolArgs(body)
+  const tcId = toolCallId(body)
+  const reason = typeof args.reason === 'string' ? args.reason : undefined
   const job = callId ? await findCallJob(callId) : null
-  if (!job) { res.status(404).json({ error: 'Call job not found' }); return }
+  if (!job) {
+    res.json(vapiResult(tcId, 'Error: call session not found.'))
+    return
+  }
   const updated = await prisma.callJob.update({
     where: { id: job.id },
     data: {
@@ -166,5 +223,5 @@ vapiToolsRouter.post('/tools/request-escalation', async (req, res) => {
     },
   })
   await ensureFollowUpTaskForCallOutcome(updated, 'escalated').catch(() => null)
-  res.json({ success: true })
+  res.json(vapiResult(tcId, 'Escalation recorded. Pharmacy staff will follow up with the patient directly.'))
 })
