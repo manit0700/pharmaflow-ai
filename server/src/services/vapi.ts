@@ -23,6 +23,7 @@ export async function startVapiCall({
       phoneNumberId: config.vapiPhoneNumberId,
       customer: { number: to, name: patientName },
       metadata: { callJobId, ...metadata },
+      serverUrl: `${config.publicBaseUrl}/api/vapi/webhook`,
     },
     {
       headers: {

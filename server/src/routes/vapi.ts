@@ -74,12 +74,35 @@ vapiRouter.post('/webhook', async (req, res) => {
         data: { callStatus: 'in_progress', vapiCallId, twilioCallSid: vapiCallId, conversationState: 'GREETING' },
       })
     } else if (type === 'end-of-call-report') {
+      // Convert VAPI messages (role + message keys) to {role, content} format the UI reads
+      const rawMessages =
+        nested(payload, ['message', 'artifact', 'messages']) ??
+        nested(payload, ['artifact', 'messages'])
+      let messagesJson: string | null = null
+      if (Array.isArray(rawMessages)) {
+        const converted = (rawMessages as Record<string, unknown>[])
+          .filter((m) => m.role === 'assistant' || m.role === 'user' || m.role === 'bot')
+          .map((m) => ({
+            role: m.role === 'bot' ? 'assistant' : m.role,
+            content: String(m.message ?? m.content ?? m.text ?? ''),
+          }))
+          .filter((m) => m.content.trim())
+        if (converted.length > 0) messagesJson = JSON.stringify(converted)
+      }
+      const summaryText =
+        stringAt(payload, ['message', 'analysis', 'summary']) ??
+        stringAt(payload, ['analysis', 'summary'])
+      const endedReason =
+        stringAt(payload, ['message', 'endedReason']) ??
+        stringAt(payload, ['endedReason'])
       await prisma.callJob.update({
         where: { id: callJobId },
         data: {
-          callStatus: 'completed',
+          callStatus: endedReason === 'voicemail' ? 'voicemail' : 'completed',
           callCompletedAt: new Date(),
           transcriptJson: transcriptFrom(payload),
+          messagesJson: messagesJson ?? undefined,
+          aiSummary: summaryText ?? undefined,
           conversationState: 'COMPLETED',
           resolutionStatus: 'resolved',
         },
