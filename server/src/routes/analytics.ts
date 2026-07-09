@@ -1,9 +1,11 @@
 import { Router } from 'express'
 import { prisma } from '../lib/prisma.js'
+import { config } from '../config.js'
+import { getTwilioClient } from '../lib/twilioAuth.js'
 
 export const analyticsRouter = Router()
 
-analyticsRouter.get('/analytics', async (_req, res) => {
+analyticsRouter.get('/analytics', async (req, res) => {
   const EMPTY = {
     totalJobs: 0, attempted: 0, completed: 0, escalated: 0, withPatientResponse: 0,
     todayCompleted: 0, todayTasksCreated: 0, todayTasksResolved: 0,
@@ -13,11 +15,18 @@ analyticsRouter.get('/analytics', async (_req, res) => {
   }
 
   try {
+    const rawDays = Array.isArray(req.query.days) ? req.query.days[0] : req.query.days
+    const days = rawDays ? Number(rawDays) : null
+    const createdAtFilter =
+      days && Number.isFinite(days) && days > 0
+        ? { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) }
+        : undefined
+    const jobWhere = createdAtFilter ? { createdAt: createdAtFilter } : undefined
     const todayStart = new Date()
     todayStart.setHours(0, 0, 0, 0)
 
     const [jobs, todayTasksCreatedCount, todayTasksResolvedCount] = await Promise.all([
-      prisma.callJob.findMany({ orderBy: { createdAt: 'asc' } }),
+      prisma.callJob.findMany({ where: jobWhere, orderBy: { createdAt: 'asc' } }),
       prisma.staffTask.count({ where: { createdAt: { gte: todayStart } } }),
       prisma.staffTask.count({
         where: { status: { in: ['completed', 'Completed'] }, updatedAt: { gte: todayStart } },
@@ -102,6 +111,97 @@ analyticsRouter.get('/analytics', async (_req, res) => {
     })
   } catch {
     res.json(EMPTY)
+  }
+})
+
+async function buildDailySummaryData() {
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+
+  const [jobs, openTasks, completedTasks] = await Promise.all([
+    prisma.callJob.findMany({
+      where: { callAttemptedAt: { gte: todayStart } },
+      select: {
+        callStatus: true,
+        patientResponse: true,
+        staffFollowUpNeeded: true,
+        callDuration: true,
+      },
+    }),
+    prisma.staffTask.count({ where: { status: 'open' } }),
+    prisma.staffTask.count({
+      where: { status: { in: ['completed', 'Completed'] }, updatedAt: { gte: todayStart } },
+    }),
+  ])
+
+  const total = jobs.length
+  const completed = jobs.filter((j) => j.callStatus === 'completed').length
+  const voicemail = jobs.filter((j) => j.callStatus === 'voicemail').length
+  const noAnswer = jobs.filter((j) => j.callStatus === 'no_answer').length
+  const callbackRequested = jobs.filter((j) => j.callStatus === 'callback_requested').length
+  const escalated = jobs.filter((j) => j.callStatus === 'escalated' || j.staffFollowUpNeeded).length
+  const confirmations = jobs.filter((j) =>
+    j.patientResponse && (j.patientResponse.toLowerCase().includes('confirmed') || j.patientResponse.toLowerCase().includes('process today'))
+  ).length
+  const durations = jobs.filter((j) => (j.callDuration ?? 0) > 0).map((j) => j.callDuration!)
+  const avgDuration = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : null
+
+  return {
+    date: todayStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    total,
+    completed,
+    voicemail,
+    noAnswer,
+    callbackRequested,
+    escalated,
+    confirmations,
+    avgDuration,
+    openTasks,
+    completedTasks,
+  }
+}
+
+function buildSmsText(s: Awaited<ReturnType<typeof buildDailySummaryData>>): string {
+  const lines = [
+    `${config.pharmacyName} — Daily Summary (${s.date})`,
+    `Calls today: ${s.total} total | ${s.completed} completed | ${s.voicemail} voicemail | ${s.callbackRequested} callback`,
+    `Confirmations: ${s.confirmations} | Escalations: ${s.escalated}`,
+    `Open staff tasks: ${s.openTasks} | Resolved today: ${s.completedTasks}`,
+  ]
+  if (s.avgDuration) lines.push(`Avg call duration: ${Math.floor(s.avgDuration / 60)}m ${s.avgDuration % 60}s`)
+  return lines.join('\n')
+}
+
+analyticsRouter.get('/analytics/daily-summary', async (_req, res) => {
+  try {
+    const summary = await buildDailySummaryData()
+    res.json({ summary, message: buildSmsText(summary) })
+  } catch {
+    res.status(500).json({ error: 'Could not build daily summary' })
+  }
+})
+
+analyticsRouter.post('/analytics/daily-summary/send', async (_req, res) => {
+  try {
+    const summary = await buildDailySummaryData()
+    const message = buildSmsText(summary)
+
+    if (!config.staffPhone) {
+      res.status(400).json({ error: 'No staff phone number configured in Settings.' })
+      return
+    }
+
+    const client = getTwilioClient()
+    const smsFrom = config.twilioSmsNumber || config.twilioPhoneNumber
+    if (!client || !smsFrom) {
+      res.status(400).json({ error: 'Twilio not configured for SMS.' })
+      return
+    }
+
+    await client.messages.create({ to: config.staffPhone, from: smsFrom, body: message })
+    res.json({ sent: true, to: config.staffPhone, summary, message })
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to send summary' })
   }
 })
 

@@ -10,6 +10,12 @@ export interface SmsFollowUpParams {
   patientResponse: string | null
 }
 
+export interface StaffAlertSmsParams {
+  patientName: string
+  medicationName: string
+  reason: string
+}
+
 function buildSmsBody(params: SmsFollowUpParams): string {
   const firstName = params.patientName.trim().split(/\s+/)[0] ?? params.patientName
 
@@ -57,6 +63,31 @@ export async function sendSmsFollowUp(params: SmsFollowUpParams): Promise<'sent'
     })
     return 'sent'
   } catch {
+    return 'failed'
+  }
+}
+
+export async function sendStaffAlertSms(params: StaffAlertSmsParams): Promise<'sent' | 'disabled' | 'failed'> {
+  if (!config.enableSmsFollowup || !config.staffPhone) return 'disabled'
+  const client = getTwilioClient()
+  if (!client || !config.twilioSmsNumber) return 'disabled'
+
+  const reason = params.reason.toLowerCase().includes('voicemail')
+    ? 'call went to voicemail'
+    : 'requested pharmacist'
+  const body =
+    `[${config.pharmacyName}] alert: ${params.patientName} ${reason}. ` +
+    `Please follow up. Medication: ${params.medicationName}.`
+
+  try {
+    await client.messages.create({
+      to: config.staffPhone,
+      from: config.twilioSmsNumber,
+      body,
+    })
+    return 'sent'
+  } catch (e) {
+    console.warn('Staff alert SMS failed:', e instanceof Error ? e.message : String(e))
     return 'failed'
   }
 }

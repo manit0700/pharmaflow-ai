@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, Clock, MessageSquare, Mic, Phone, Search, ShieldCheck, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, Download, MessageSquare, Mic, Phone, PhoneOff, Search, ShieldCheck, XCircle } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { ResolutionBadge } from '@/components/shared/StatusBadge'
@@ -12,6 +13,8 @@ import { useConversationList } from '@/hooks/useConversationList'
 import { formatDuration, formatTime } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
+import { updateStaffNotes } from '@/utils/api'
+import type { Conversation } from '@/types'
 
 const DETAIL_LABEL: Record<string, string> = {
   medication: 'Medication',
@@ -27,38 +30,86 @@ function detailLabel(key: string): string {
   return DETAIL_LABEL[key] ?? key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase()).trim()
 }
 
-const filters: {
-  id: string
-  label: string
-  match?: (c: ReturnType<typeof useConversationList>['conversations'][0]) => boolean
-}[] = [
+type DateRange = 'today' | 'week' | 'all'
+
+const STATUS_FILTERS: { id: string; label: string; match?: (c: Conversation) => boolean }[] = [
   { id: 'all', label: 'All' },
   { id: 'resolved', label: 'Answered', match: (c) => c.resolutionStatus === 'resolved' },
   { id: 'escalated', label: 'Follow-up', match: (c) => c.resolutionStatus === 'escalated' },
-  { id: 'pending', label: 'No answer', match: (c) => c.resolutionStatus === 'pending' },
+  { id: 'voicemail', label: 'Voicemail', match: (c) => c.extractedData.callStatus === 'voicemail' },
+  { id: 'callback', label: 'Callback', match: (c) => c.extractedData.callStatus === 'callback_requested' },
+  { id: 'pending', label: 'No answer', match: (c) => c.resolutionStatus === 'pending' && c.extractedData.callStatus !== 'voicemail' && c.extractedData.callStatus !== 'callback_requested' },
   { id: 'refill', label: 'Refill', match: (c) => c.requestType === 'refill' },
 ]
 
+function exportCsv(conversations: Conversation[]) {
+  const headers = ['Patient', 'Phone', 'Medication', 'Call reason', 'Status', 'Duration (s)', 'Patient answer', 'Date']
+  const rows = conversations.map((c) => [
+    c.patientFirstName,
+    c.extractedData.phone ?? '',
+    c.extractedData.prescriptions ?? c.extractedData.medication ?? '',
+    c.workflowName,
+    callStatusLabel(c.extractedData.callStatus ?? ''),
+    String(c.durationSec),
+    c.extractedData.patientResponse ?? '',
+    new Date(c.startedAt).toLocaleDateString(),
+  ])
+  const csv = [headers, ...rows].map((r) => r.map((v) => `"${v.replace(/"/g, '""')}"`).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `pharmaflow-calls-${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+}
+
 export function ConversationsPage() {
-  const { conversations, loading } = useConversationList()
+  const { conversations, loading, refresh } = useConversationList()
   const [selectedId, setSelectedId] = useState('')
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
+  const [dateRange, setDateRange] = useState<DateRange>('all')
+  const [notesDraft, setNotesDraft] = useState<{ id: string; value: string } | null>(null)
+  const [notesSaved, setNotesSaved] = useState(false)
+  const [notesSaving, setNotesSaving] = useState(false)
 
   const filtered = useMemo(() => {
-    const f = filters.find((x) => x.id === filter)
+    const f = STATUS_FILTERS.find((x) => x.id === filter)
+    const now = new Date()
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0)
+    const weekStart = new Date(now); weekStart.setDate(now.getDate() - 7)
+
     return conversations.filter((c) => {
       const matchesFilter = !f?.match || f.match(c)
       const matchesQuery =
         !query ||
         c.patientFirstName.toLowerCase().includes(query.toLowerCase()) ||
         c.extractedData.medication?.toLowerCase().includes(query.toLowerCase()) ||
+        c.extractedData.prescriptions?.toLowerCase().includes(query.toLowerCase()) ||
         c.messages.some((m) => m.content.toLowerCase().includes(query.toLowerCase()))
-      return matchesFilter && matchesQuery
+      const callDate = new Date(c.startedAt)
+      const matchesDate =
+        dateRange === 'all' ||
+        (dateRange === 'today' && callDate >= todayStart) ||
+        (dateRange === 'week' && callDate >= weekStart)
+      return matchesFilter && matchesQuery && matchesDate
     })
-  }, [conversations, query, filter])
+  }, [conversations, query, filter, dateRange])
 
   const selected = conversations.find((c) => c.id === selectedId) ?? filtered[0]
+  const staffNotes = selected && notesDraft?.id === selected.id ? notesDraft.value : selected?.staffNotes ?? ''
+
+  async function saveStaffNotes() {
+    if (!selected || staffNotes === (selected.staffNotes ?? '')) return
+    setNotesSaving(true)
+    try {
+      await updateStaffNotes(selected.id, staffNotes)
+      await refresh()
+      setNotesSaved(true)
+      window.setTimeout(() => setNotesSaved(false), 2000)
+    } finally {
+      setNotesSaving(false)
+    }
+  }
 
   const stats = {
     total: conversations.length,
@@ -84,11 +135,37 @@ export function ConversationsPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Call history</h1>
-        <p className="text-sm text-muted-foreground">
-          Outbound calls — transcripts, patient answers, and recordings
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Call history</h1>
+          <p className="text-sm text-muted-foreground">
+            Outbound calls — transcripts, patient answers, and recordings
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Date range */}
+          <div className="flex rounded-md border border-border overflow-hidden text-xs">
+            {(['today', 'week', 'all'] as DateRange[]).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setDateRange(r)}
+                className={cn(
+                  'px-3 py-1.5 capitalize',
+                  dateRange === r ? 'bg-primary text-primary-foreground' : 'bg-background text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {r === 'today' ? 'Today' : r === 'week' ? 'This week' : 'All time'}
+              </button>
+            ))}
+          </div>
+          {filtered.length > 0 && (
+            <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => exportCsv(filtered)}>
+              <Download className="h-3 w-3" />
+              Export CSV
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Summary stats */}
@@ -110,11 +187,12 @@ export function ConversationsPage() {
 
       {conversations.length === 0 ? (
         <Card>
-          <CardContent className="p-8 text-center text-sm text-muted-foreground space-y-2">
-            <p>No outbound calls yet.</p>
+          <CardContent className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
+            <PhoneOff className="h-10 w-10 opacity-40" />
+            <p className="font-medium text-foreground">No calls have been made yet</p>
             <p>
-              <Link to="/dashboard" className="text-primary underline">Add patients and start calling</Link>{' '}
-              to see history here.
+              <Link to="/dashboard" className="text-primary underline">Add a patient on the Dashboard</Link>{' '}
+              to get started.
             </p>
           </CardContent>
         </Card>
@@ -134,7 +212,7 @@ export function ConversationsPage() {
                 />
               </div>
               <div className="mt-2 flex flex-wrap gap-1">
-                {filters.map((f) => (
+                {STATUS_FILTERS.map((f) => (
                   <button
                     key={f.id}
                     type="button"
@@ -153,13 +231,20 @@ export function ConversationsPage() {
             </CardHeader>
             <CardContent className="flex-1 overflow-auto p-2 pt-0 space-y-1">
               {filtered.length === 0 ? (
-                <p className="p-4 text-sm text-muted-foreground">No calls match your filters.</p>
+                <div className="flex flex-col items-center gap-2 p-6 text-center text-sm text-muted-foreground">
+                  <PhoneOff className="h-8 w-8 opacity-40" />
+                  <p className="font-medium text-foreground">No conversations match your filters</p>
+                  <p>Adjust the search, status, or date range to see more calls.</p>
+                </div>
               ) : (
                 filtered.map((c) => (
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => setSelectedId(c.id)}
+                    onClick={() => {
+                      setSelectedId(c.id)
+                      setNotesSaved(false)
+                    }}
                     className={cn(
                       'w-full rounded-md border p-3 text-left transition-colors',
                       selected?.id === c.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted',
@@ -319,6 +404,25 @@ export function ConversationsPage() {
 
                   {/* Details tab */}
                   <TabsContent value="details" className="pt-2">
+                    <div className="mb-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium">Staff notes</p>
+                        <span className="text-xs text-muted-foreground">
+                          {notesSaving ? 'Saving…' : notesSaved ? 'Saved' : ' '}
+                        </span>
+                      </div>
+                      <textarea
+                        className="min-h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value={staffNotes}
+                        onChange={(e) => {
+                          if (!selected) return
+                          setNotesSaved(false)
+                          setNotesDraft({ id: selected.id, value: e.target.value })
+                        }}
+                        onBlur={() => void saveStaffNotes()}
+                        placeholder="Add notes…"
+                      />
+                    </div>
                     <dl className="divide-y divide-border text-sm">
                       {Object.entries(selected.extractedData)
                         .filter(([k]) => !['aiTurns', 'dobVerified'].includes(k))

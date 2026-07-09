@@ -7,9 +7,9 @@
     "dev": "vite",
     "dev:server": "npm run dev --prefix server",
     "dev:all": "concurrently -n api,web -c cyan,green \"npm run dev:server\" \"npm run dev\"",
-    "dev:pc": "node -e \"console.log('\\n  PC mode: API reads server/local.config.json (or server/.env). UI uses Vite proxy -> 127.0.0.1:4002\\n')\" && npm run dev:all",
+    "dev:pc": "node -e \"console.log('\\n  PC mode: API reads server/local.config.json (or server/.env). UI uses Vite proxy -> 127.0.0.1:4003\\n')\" && npm run dev:all",
     "start:pc": "npm run build --prefix server && concurrently -n api,web -c cyan,green \"npm run start --prefix server\" \"npm run preview -- --host\"",
-    "api:kill-old": "for p in 4000 4002; do lsof -ti :$p 2>/dev/null; done | xargs kill -9 2>/dev/null; echo 'Stopped API on 4000/4002 (if any)'",
+    "api:kill-old": "for p in 4000 4002 4003; do lsof -ti :$p 2>/dev/null; done | xargs kill -9 2>/dev/null; echo 'Stopped API on 4000/4002/4003 (if any)'",
     "restart:api": "npm run api:kill-old && npm run build --prefix server && npm run start --prefix server",
     "api:start": "npm run dev --prefix server",
     "ngrok:setup": "bash scripts/ngrok-setup.sh",
@@ -19,7 +19,10 @@
     "preview:ai-prompt": "npm run build --prefix server && node scripts/preview-ai-prompt.mjs",
     "build": "prisma generate --schema server/prisma/schema.prisma && tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
@@ -60,6 +63,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/ui": "^4.1.10",
     "concurrently": "^9.2.1",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
@@ -68,6 +72,7 @@
     "prisma": "^6.19.3",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "vitest": "^4.1.10"
   }
 }

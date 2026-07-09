@@ -114,10 +114,11 @@ Frontend (Vite/React)  →  Vite proxy  →  Express API (port 4002)
 
 ## AMD / Machine Detection
 
-- `machineDetection` is NOT set in `calls.create()` → AMD disabled
-- `AnsweredBy` only appears if AMD is explicitly enabled
-- Any non-machine `AnsweredBy` (absent, "human", or unknown) → `callStatus = in_progress`
-- Only explicit machine values (`machine_start`, `machine_end_*`, `fax`) → voicemail
+- `machineDetection: 'Enable'` + `machineDetectionTimeout: 30` set in `calls.create()`
+- Twilio includes `AnsweredBy` in the voice-response POST body
+- `AnsweredBy = human` → `callStatus = in_progress`, call proceeds normally
+- `AnsweredBy = machine_start | machine_end_* | fax` → play voicemail TwiML, hang up, `callStatus = voicemail`
+- Speech-based IVR detection (< 3 AI turns) also catches missed cases
 
 ## No-Goodbye Protection (two layers)
 
@@ -176,7 +177,7 @@ Frontend (Vite/React)  →  Vite proxy  →  Express API (port 4002)
 - [x] 30+ YES phrases and 20+ NO phrases accepted
 - [x] Ambiguous answer → AI re-asks with "please say yes or no"
 - [x] Two-layer no-goodbye sanitizer
-- [x] AMD explicitly disabled; human calls can never be mis-marked voicemail
+- [x] AMD enabled (`machineDetection: 'Enable'`); voicemail TwiML played on machine answer
 - [x] Call recording: `record: true`, webhook, DB field, audio proxy, player UI
 - [x] SMS follow-up after completed refill (`server/src/services/sms.ts`)
 - [x] Stale webhook guard (terminal status → immediate `<Hangup/>`)

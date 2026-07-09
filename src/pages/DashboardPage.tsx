@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { KpiCard } from '@/components/shared/KpiCard'
@@ -13,11 +13,40 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
-import { ChevronDown, ChevronUp, ExternalLink, Search, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Clock, ExternalLink, Search, X } from 'lucide-react'
+import { fetchDailySummary, fetchSchedulerStatus, cancelRetry, type DailySummaryData, type SchedulerStatus } from '@/utils/api'
 
 export function DashboardPage() {
   const [search, setSearch] = useState('')
   const [showAddForm, setShowAddForm] = useState(false)
+  const [scheduler, setScheduler] = useState<SchedulerStatus | null>(null)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
+  const [dailySummary, setDailySummary] = useState<DailySummaryData | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(true)
+
+  useEffect(() => {
+    void fetchSchedulerStatus().then(setScheduler).catch(() => null)
+    const iv = setInterval(() => void fetchSchedulerStatus().then(setScheduler).catch(() => null), 30_000)
+    return () => clearInterval(iv)
+  }, [])
+
+  useEffect(() => {
+    void fetchDailySummary()
+      .then((result) => setDailySummary(result.summary))
+      .catch(() => setDailySummary(null))
+      .finally(() => setSummaryLoading(false))
+  }, [])
+
+  async function handleCancelRetry(id: string) {
+    setCancellingId(id)
+    try {
+      await cancelRetry(id)
+      const updated = await fetchSchedulerStatus()
+      setScheduler(updated)
+    } finally {
+      setCancellingId(null)
+    }
+  }
 
   const {
     health,
@@ -113,6 +142,24 @@ export function DashboardPage() {
 
       <ActiveCallsPanel jobs={activeJobs} health={health} callingId={callingId} />
 
+      {summaryLoading ? (
+        <Skeleton className="h-9 w-full rounded-md" />
+      ) : dailySummary && dailySummary.total > 0 ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+          {[
+            ['Calls today', dailySummary.total],
+            ['Completed', dailySummary.completed],
+            ['Voicemail', dailySummary.voicemail],
+            ['Follow-ups needed', dailySummary.escalated],
+          ].map(([label, value]) => (
+            <span key={label} className="rounded border border-border bg-background px-2 py-1 text-xs">
+              <span className="text-muted-foreground">{label}</span>
+              <span className="ml-1 font-semibold">{value}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       {/* KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {loading && jobs.length === 0
@@ -153,6 +200,61 @@ export function DashboardPage() {
               <p className="text-xs text-muted-foreground text-center pt-1">
                 +{tasks.length - 5} more ·{' '}
                 <Link to="/follow-ups" className="text-primary underline underline-offset-2">View all</Link>
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Scheduled queue — only shown when there are pending scheduled calls */}
+      {scheduler && (scheduler.batchScheduled > 0 || scheduler.retryScheduled > 0) && (
+        <Card className="border-blue-200 dark:border-blue-800">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-blue-500" />
+                <CardTitle className="text-base">Scheduled calls</CardTitle>
+                <Badge variant="secondary">{scheduler.batchScheduled + scheduler.retryScheduled}</Badge>
+              </div>
+              <span className="text-xs text-muted-foreground">Auto-fires every 30s</span>
+            </div>
+            <CardDescription>
+              {scheduler.batchScheduled > 0 && `${scheduler.batchScheduled} batch`}
+              {scheduler.batchScheduled > 0 && scheduler.retryScheduled > 0 && ' · '}
+              {scheduler.retryScheduled > 0 && `${scheduler.retryScheduled} retries`}
+              {scheduler.nextBatch && ` · Next batch: ${new Date(scheduler.nextBatch).toLocaleTimeString()}`}
+              {scheduler.nextRetry && ` · Next retry: ${new Date(scheduler.nextRetry).toLocaleTimeString()}`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1.5 text-sm">
+            {[...scheduler.batchJobs, ...scheduler.retryJobs].slice(0, 8).map((j) => (
+              <div key={j.id} className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <span className="font-medium">{j.patientName}</span>
+                  <span className="ml-2 text-xs text-muted-foreground capitalize">{j.callReason.replace(/_/g, ' ')}</span>
+                  {j.scheduledFor && (
+                    <span className="ml-2 text-xs text-blue-500">
+                      {new Date(j.scheduledFor) <= new Date() ? 'due now' : new Date(j.scheduledFor).toLocaleTimeString()}
+                    </span>
+                  )}
+                  {j.retryAttempt > 0 && (
+                    <span className="ml-2 text-xs text-muted-foreground">retry {j.retryAttempt}/{j.maxRetryAttempts}</span>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-destructive hover:bg-destructive/10"
+                  onClick={() => void handleCancelRetry(j.id)}
+                  disabled={cancellingId === j.id}
+                >
+                  {cancellingId === j.id ? 'Cancelling…' : 'Cancel'}
+                </Button>
+              </div>
+            ))}
+            {scheduler.batchScheduled + scheduler.retryScheduled > 8 && (
+              <p className="text-xs text-muted-foreground text-center pt-1">
+                +{scheduler.batchScheduled + scheduler.retryScheduled - 8} more
               </p>
             )}
           </CardContent>

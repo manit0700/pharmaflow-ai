@@ -8,27 +8,68 @@ import assert from 'node:assert/strict'
 // detectNonHumanAudio — inline copy so we can test without building
 // ────────────────────────────────────────────────────────────────────────────
 const IVR_PHRASES = [
+  // Voicemail openers
+  'you have reached the voicemail',
+  'you have reached',
+  'you have reached the voice mail',
   'the person you are trying to reach',
+  'currently unavailable',
   'is not available',
+  'is currently unavailable',
+  // Leave-message prompts
+  'please leave a message',
   'leave a message',
   'leave your message',
+  'leave us a message',
+  'please record your message',
+  'record your message after the tone',
   'at the tone',
   'after the tone',
+  'after the beep',
+  // Mailbox states
   'mailbox is full',
   'mailbox',
   'voicemail',
+  // Keypad IVR menus
   'press 1',
+  'press 2',
+  'press 3',
+  'press 4',
+  'press 0',
   'press one',
-  'if this is an emergency',
+  'press two',
+  'press three',
+  'press zero',
+  'press the pound',
+  'press the star',
+  'for english press',
+  'para espanol',
+  'to repeat this menu',
+  // Hold / queue messages
   'please hold',
+  'all of our representatives',
+  'all agents are',
+  'your estimated wait',
+  'your call will be answered',
+  'your call is important',
   'your call may be recorded',
-  'business hours',
-  'automated system',
-  'not in service',
+  'for quality assurance',
+  'thank you for calling',
+  'thank you for holding',
+  // Emergency / safety prompts
+  'if this is an emergency',
+  // Carrier / disconnected messages
   'the number you have dialed',
+  'cannot be completed as dialed',
+  'cannot be completed',
   'has been disconnected',
   'no longer in service',
+  'not in service',
   'this number is not',
+  // Generic automation markers
+  'business hours',
+  'automated system',
+  'automated message',
 ]
 
 function detectNonHumanAudio(text) {
@@ -86,6 +127,7 @@ function test(name, fn) {
 }
 
 console.log('\n--- detectNonHumanAudio ---')
+// Original phrases
 test('detects "the person you are trying to reach"', () => {
   assert.equal(detectNonHumanAudio('The person you are trying to reach is not available'), true)
 })
@@ -101,6 +143,47 @@ test('detects "voicemail"', () => {
 test('detects "if this is an emergency"', () => {
   assert.equal(detectNonHumanAudio('If this is an emergency please hang up'), true)
 })
+// Newly added phrases
+test('detects "you have reached" (most common voicemail opener)', () => {
+  assert.equal(detectNonHumanAudio('You have reached John Smith. I am not available.'), true)
+})
+test('detects "you have reached the voicemail"', () => {
+  assert.equal(detectNonHumanAudio("You have reached the voicemail of the person you called."), true)
+})
+test('detects "currently unavailable"', () => {
+  assert.equal(detectNonHumanAudio('The person you called is currently unavailable.'), true)
+})
+test('detects "thank you for calling"', () => {
+  assert.equal(detectNonHumanAudio('Thank you for calling ABC Medical. For sales press 1.'), true)
+})
+test('detects "thank you for holding"', () => {
+  assert.equal(detectNonHumanAudio('Thank you for holding. Your call will be answered shortly.'), true)
+})
+test('detects "all of our representatives"', () => {
+  assert.equal(detectNonHumanAudio('All of our representatives are currently busy.'), true)
+})
+test('detects "your estimated wait"', () => {
+  assert.equal(detectNonHumanAudio('Your estimated wait time is 5 minutes.'), true)
+})
+test('detects "cannot be completed"', () => {
+  assert.equal(detectNonHumanAudio('This call cannot be completed as dialed.'), true)
+})
+test('detects "for english press"', () => {
+  assert.equal(detectNonHumanAudio('For English press 1. Para espanol oprima dos.'), true)
+})
+test('detects "after the beep"', () => {
+  assert.equal(detectNonHumanAudio('Please leave your message after the beep.'), true)
+})
+test('detects "please record your message"', () => {
+  assert.equal(detectNonHumanAudio('Please record your message after the tone.'), true)
+})
+test('detects "press 2" and "press 3"', () => {
+  assert.equal(detectNonHumanAudio('For support press 2, for billing press 3.'), true)
+})
+test('detects "automated message"', () => {
+  assert.equal(detectNonHumanAudio('This is an automated message from your pharmacy.'), true)
+})
+// Verified non-matches (patient speech)
 test('does NOT flag real patient speech "January first"', () => {
   assert.equal(detectNonHumanAudio('January first'), false)
 })
@@ -109,6 +192,12 @@ test('does NOT flag "yes please process"', () => {
 })
 test('does NOT flag "zero one zero one"', () => {
   assert.equal(detectNonHumanAudio('zero one zero one'), false)
+})
+test('does NOT flag "no not today"', () => {
+  assert.equal(detectNonHumanAudio('no not today'), false)
+})
+test('does NOT flag "I need a refill"', () => {
+  assert.equal(detectNonHumanAudio('I need a refill for my medication'), false)
 })
 test('returns false for empty string', () => {
   assert.equal(detectNonHumanAudio(''), false)

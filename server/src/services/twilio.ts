@@ -192,6 +192,11 @@ export async function startOutboundCall(params: {
       recordingStatusCallback: buildPublicCallbackUrl('/api/twilio/recording-status', { callJobId: params.callJobId }),
       recordingStatusCallbackEvent: ['completed'],
       recordingStatusCallbackMethod: 'POST',
+      // Answering machine detection: Twilio includes AnsweredBy in the voice-response POST.
+      // 'Enable' detects machine at start of greeting; 'DetectMessageEnd' waits for the beep.
+      // The voice-response handler already branches on AnsweredBy to play the voicemail TwiML.
+      machineDetection: 'Enable',
+      machineDetectionTimeout: 3,
     })
     return { sid: call.sid, status: call.status }
   } catch (err) {

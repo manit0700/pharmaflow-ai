@@ -96,6 +96,7 @@ export interface Conversation {
   aiConfidence: number
   resolutionStatus: ResolutionStatus
   escalationReason?: string
+  staffNotes?: string
   durationSec: number
   startedAt: string
   workflowName: string

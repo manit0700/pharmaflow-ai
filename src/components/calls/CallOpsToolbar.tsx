@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Clock, Download, RefreshCw, Upload } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ImportPreviewDialog } from '@/components/calls/ImportPreviewDialog'
 import { exportExcelUrl, type HealthResponse } from '@/utils/api'
 
 export function CallOpsToolbar({
@@ -19,6 +20,7 @@ export function CallOpsToolbar({
 }) {
   const [schedulePanelOpen, setSchedulePanelOpen] = useState(false)
   const [scheduleDate, setScheduleDate] = useState('')
+  const [pendingImport, setPendingImport] = useState<File | null>(null)
   const provider = health?.phoneProvider
   const providerAccount = provider?.account ?? health?.twilioAccount
 
@@ -84,8 +86,16 @@ export function CallOpsToolbar({
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0]
-            if (f) void onUpload(f)
+            if (f) setPendingImport(f)
             e.target.value = ''
+          }}
+        />
+        <ImportPreviewDialog
+          file={pendingImport}
+          onCancel={() => setPendingImport(null)}
+          onConfirm={(f) => {
+            void onUpload(f)
+            setPendingImport(null)
           }}
         />
         <Button variant="outline" size="sm" asChild>

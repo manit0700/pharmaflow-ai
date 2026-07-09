@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "prisma-compute": {
+      "source": "prisma/skills",
+      "sourceType": "github",
+      "skillPath": "prisma-compute/SKILL.md",
+      "computedHash": "56808faafd4e8520e661af3a7f0852913f86de89f23edc7c8380786af205fa25"
+    }
+  }
+}

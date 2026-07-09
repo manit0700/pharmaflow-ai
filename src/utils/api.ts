@@ -1,5 +1,5 @@
 /**
- * Dev: default same-origin /api → Vite proxy to 127.0.0.1:4002.
+ * Dev: default same-origin /api → Vite proxy to 127.0.0.1:4003.
  * Set VITE_API_BASE_URL in .env.local only when you need a direct API host.
  */
 function getApiBase(): string {
@@ -25,6 +25,7 @@ export interface CallJob {
   medicationName: string
   callReason: string
   notes: string | null
+  staffNotes: string | null
   validationStatus: string
   validationError: string | null
   callStatus: string
@@ -165,7 +166,7 @@ function cannotReachApiMessage(): string {
     return `Cannot reach the API (${BASE}). Open ${BASE}/api/health to verify the backend is online.`
   }
 
-  const target = BASE || 'this page’s /api proxy -> 127.0.0.1:4002'
+  const target = BASE || 'this page’s /api proxy -> 127.0.0.1:4003'
   return `Cannot reach the API (${target}). Run: cd ~/Projects/pharmaflow-ai && npm run dev:all`
 }
 
@@ -362,8 +363,8 @@ export interface AuditResponse {
   }
 }
 
-export async function fetchAnalytics(): Promise<AnalyticsResponse> {
-  return request<AnalyticsResponse>('/analytics')
+export async function fetchAnalytics(days?: number): Promise<AnalyticsResponse> {
+  return request<AnalyticsResponse>(days ? `/analytics?days=${days}` : '/analytics')
 }
 
 export async function fetchAuditEvents(): Promise<AuditResponse> {
@@ -396,6 +397,7 @@ export interface ConfigSettings {
   callMode: 'dtmf' | 'ai'
   twilioVoice: string
   twilioLanguage: string
+  enableSmsFollowup?: boolean
   configSource?: string
 }
 
@@ -425,4 +427,71 @@ export interface CallerIdStatus {
 export async function fetchCallerIdStatus(number?: string): Promise<CallerIdStatus> {
   const query = number ? `?number=${encodeURIComponent(number)}` : ''
   return request<CallerIdStatus>(`/config/caller-id-status${query}`)
+}
+
+export async function startCallerIdVerification(phoneNumber: string): Promise<{ validationCode: string; callSid: string; phoneNumber: string }> {
+  return request<{ validationCode: string; callSid: string; phoneNumber: string }>('/config/caller-id-verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phoneNumber }),
+  })
+}
+
+export type ScheduledJob = {
+  id: string; patientName: string; phoneNumber: string; medicationName: string; callReason: string
+  scheduledFor: string | null; retryAttempt: number; maxRetryAttempts: number; retryStatus: string; callStatus: string
+}
+
+export interface SchedulerStatus {
+  now: string
+  batchScheduled: number
+  batchDue: number
+  retryScheduled: number
+  retryDue: number
+  nextBatch: string | null
+  nextRetry: string | null
+  batchJobs: ScheduledJob[]
+  retryJobs: ScheduledJob[]
+}
+
+export async function fetchSchedulerStatus(): Promise<SchedulerStatus> {
+  return request<SchedulerStatus>('/call-jobs/scheduler-status')
+}
+
+export async function cancelRetry(id: string): Promise<CallJob> {
+  return request<CallJob>(`/call-jobs/${id}/cancel-retry`, { method: 'POST' })
+}
+
+export async function updateStaffNotes(id: string, staffNotes: string): Promise<CallJob> {
+  return request<CallJob>(`/call-jobs/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ staffNotes }),
+  })
+}
+
+export interface DailySummaryData {
+  date: string
+  total: number
+  completed: number
+  voicemail: number
+  noAnswer: number
+  callbackRequested: number
+  escalated: number
+  confirmations: number
+  avgDuration: number | null
+  openTasks: number
+  completedTasks: number
+}
+
+export interface DailySummaryResponse { summary: DailySummaryData; message: string }
+
+export async function fetchDailySummary(): Promise<DailySummaryResponse> {
+  return request<DailySummaryResponse>('/analytics/daily-summary')
+}
+
+export type SendDailySummaryResponse = { sent: boolean; to: string; summary: DailySummaryData; message: string }
+
+export async function sendDailySummary(): Promise<SendDailySummaryResponse> {
+  return request<SendDailySummaryResponse>('/analytics/daily-summary/send', { method: 'POST' })
 }

@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { config, updateConfig } from '../config.js'
 import { phoneProvider } from '../services/phoneProvider.js'
 import { checkCallerIdStatus, invalidateCallerIdCache } from '../services/callerIdCheck.js'
+import { getTwilioClient } from '../lib/twilioAuth.js'
 
 export const configRouter = Router()
 
@@ -13,6 +14,7 @@ configRouter.get('/config', (_req, res) => {
     callMode: config.callMode,
     twilioVoice: config.twilioVoice,
     twilioLanguage: config.twilioLanguage,
+    enableSmsFollowup: config.enableSmsFollowup,
     configSource: config.configSource,
   })
 })
@@ -49,6 +51,33 @@ configRouter.get('/config/caller-id-status', async (req, res) => {
   } satisfies CallerIdStatusResponse)
 })
 
+const E164 = /^\+[1-9]\d{1,14}$/
+
+configRouter.post('/config/caller-id-verify', async (req, res) => {
+  const phoneNumber = typeof req.body?.phoneNumber === 'string' ? req.body.phoneNumber.trim() : ''
+  if (!E164.test(phoneNumber)) {
+    res.status(400).json({ error: 'Phone number must be in E.164 format, e.g. +16825551234.' })
+    return
+  }
+
+  const client = getTwilioClient()
+  if (!client) {
+    res.status(400).json({ error: 'Twilio is not configured. Add your account credentials in the environment first.' })
+    return
+  }
+
+  try {
+    const request = await client.validationRequests.create({ phoneNumber, friendlyName: 'Pharmacy caller ID' })
+    res.json({
+      validationCode: request.validationCode,
+      callSid: request.callSid,
+      phoneNumber: request.phoneNumber,
+    })
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Could not start caller ID verification.' })
+  }
+})
+
 configRouter.patch('/config', (req, res) => {
   try {
     const body = req.body as Record<string, unknown>
@@ -71,6 +100,7 @@ configRouter.patch('/config', (req, res) => {
         callMode: config.callMode,
         twilioVoice: config.twilioVoice,
         twilioLanguage: config.twilioLanguage,
+        enableSmsFollowup: config.enableSmsFollowup,
       },
     })
   } catch (e) {

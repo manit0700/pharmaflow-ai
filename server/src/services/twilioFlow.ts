@@ -62,6 +62,7 @@ export function scriptContextFromJob(job: {
   return {
     pharmacyName: config.pharmacyName,
     patientName: job.patientName,
+    staffPhone: config.staffPhone || undefined,
     patientDob: job.dob ?? undefined,
     medicationName: job.medicationName,
     prescriptions,
@@ -200,7 +201,7 @@ export function buildAiGatherTwiml(params: {
   callJobId: string
   reason: CallReason
   spoken: string
-  step?: 'greeting' | 'ai'
+  step?: 'greeting' | 'ai' | 'availability'
   state?: string
 }): string {
   const vr = new twilio.twiml.VoiceResponse()
@@ -217,6 +218,10 @@ export function buildAiGatherTwiml(params: {
     'yes, yeah, yep, yup, sure, okay, ok, alright, please, go ahead, process it, sounds good, of course, absolutely, definitely, correct, right, ' +
     'no, nope, nah, not yet, not now, not today, already got it, maybe later, skip it, negative'
 
+  const availabilityHints =
+    'yes, yeah, sure, ok, okay, go ahead, now is fine, available, ' +
+    'no, not now, not available, busy, call back, call me later, bad time'
+
   const gatherAttrs = {
     // Both DOB and conversation turns accept speech + dtmf so keypad is always a fallback.
     // DOB: numDigits=4 so pressing MMDD submits immediately (no # needed, no 15s wait).
@@ -228,7 +233,11 @@ export function buildAiGatherTwiml(params: {
     speechTimeout: '1' as const,
     language: 'en-US' as const,
     // No speechModel — default avoids requiring the Voice Intelligence add-on
-    hints: expectingDob ? dobHints : answerHints,
+    hints: expectingDob
+      ? dobHints
+      : params.step === 'availability'
+        ? availabilityHints
+        : answerHints,
     action: voiceResponseUrl({
       callJobId: params.callJobId,
       step: params.step ?? 'ai',
@@ -313,6 +322,10 @@ export function buildAiClosingTwiml(spoken: string, action: 'complete' | 'transf
   return vr.toString()
 }
 
+/**
+ * First step: introduce the pharmacy and reason for calling, then ask if
+ * the patient is available. DOB is NOT requested here — only after they confirm.
+ */
 export function buildAiGreetingTwiml(params: {
   callJobId: string
   reason: CallReason
@@ -320,48 +333,35 @@ export function buildAiGreetingTwiml(params: {
   state?: string
 }): string {
   const script = getCallScript(params.reason)
-  const spoken =
-    fillTemplate(script.greeting, params.ctx) +
-    ' To verify your identity, please say your date of birth, or press the month and day on your keypad.'
+  const intro = fillTemplate(script.greeting, params.ctx)
+  const spoken = `${intro} Are you available to speak for a moment?`
   return buildAiGatherTwiml({
     callJobId: params.callJobId,
     reason: params.reason,
     spoken,
+    step: 'availability',
+    state: params.state,
+  })
+}
+
+/**
+ * After the patient confirms availability: ask for DOB to verify identity.
+ */
+export function buildAiDobGatherTwiml(params: {
+  callJobId: string
+  reason: CallReason
+  state?: string
+}): string {
+  return buildAiGatherTwiml({
+    callJobId: params.callJobId,
+    reason: params.reason,
+    spoken: 'To keep your information safe, please say your date of birth, or press the month and day on your keypad.',
     step: 'greeting',
     state: params.state,
   })
 }
 
-export function verifyDob(dobInput: string, jobDob: string): boolean {
-  const digits = dobInput.replace(/\D/g, '')
-  const jobDigits = jobDob.replace(/\D/g, '')
-  if (digits.length < 4 || jobDigits.length < 4) return false
-
-  const expectedValues = new Set<string>()
-
-  const dateParts = jobDob.match(/(\d{1,4})\D+(\d{1,2})\D+(\d{1,4})/)
-  if (dateParts) {
-    const first = dateParts[1]!
-    const second = dateParts[2]!
-    const third = dateParts[3]!
-    const yearFirst = first.length === 4
-    const month = (yearFirst ? second : first).padStart(2, '0')
-    const day = (yearFirst ? third : second).padStart(2, '0')
-    const year = (yearFirst ? first : third).padStart(4, '0')
-    expectedValues.add(`${month}${day}`)
-    expectedValues.add(`${month}${day}${year}`)
-    expectedValues.add(`${year}${month}${day}`)
-    expectedValues.add(year.slice(-4))
-  }
-
-  if (jobDigits.length >= 8) {
-    expectedValues.add(jobDigits.slice(0, 4))
-    expectedValues.add(jobDigits.slice(-4))
-    expectedValues.add(jobDigits)
-  }
-
-  return expectedValues.has(digits)
-}
+export { verifyDob } from './dob.js'
 
 export function resolveMenuSelection(reason: CallReason, digit: string) {
   const script = getCallScript(reason)
@@ -371,16 +371,51 @@ export function resolveMenuSelection(reason: CallReason, digit: string) {
 export function buildInboundTwiml(): string {
   const vr = new twilio.twiml.VoiceResponse()
   startAfterPause(vr)
-  slowSay(vr, `Thank you for calling ${config.pharmacyName}.`)
+  if (config.staffPhone) {
+    const gather = vr.gather({
+      numDigits: 1,
+      action: voiceResponseUrl({ flow: 'inbound' }),
+      method: 'POST',
+      timeout: 6,
+    })
+    slowSay(
+      gather,
+      `Thank you for calling ${config.pharmacyName}. This line handles prescription refill reminders. Press 1 to speak with our pharmacy team.`,
+    )
+  } else {
+    slowSay(
+      vr,
+      `Thank you for calling ${config.pharmacyName}. This line handles prescription refill reminders. For immediate assistance, please hold or call back during business hours.`,
+    )
+  }
+  vr.hangup()
+  return vr.toString()
+}
+
+/**
+ * Served when an inbound caller's number matches a recent outbound voicemail/callback job.
+ * Tells them why we called and asks if they want to speak with staff.
+ */
+export function buildCallbackMatchTwiml(params: {
+  callJobId: string
+  reason: CallReason
+  ctx: ScriptContext
+}): string {
+  const script = getCallScript(params.reason)
+  const reasonPhrase = fillTemplate(script.greeting, params.ctx)
+    .replace(/^Hello[^,]*,\s*/i, '')
+    .replace(/\.$/, '')
+  const vr = new twilio.twiml.VoiceResponse()
+  startAfterPause(vr)
   const gather = vr.gather({
     numDigits: 1,
-    action: voiceResponseUrl({ flow: 'inbound' }),
+    action: voiceResponseUrl({ flow: 'callback_return', callJobId: params.callJobId, reason: params.reason }),
     method: 'POST',
-    timeout: 6,
+    timeout: 8,
   })
   slowSay(
     gather,
-    'Press 1 for refill, 2 for prescription status, 3 for delivery, 4 for store hours, or 0 for staff.',
+    `Thank you for calling back ${config.pharmacyName}. We recently tried to reach you regarding ${reasonPhrase}. Press 1 to speak with our pharmacy team, or press 2 to leave a message.`,
   )
   vr.hangup()
   return vr.toString()

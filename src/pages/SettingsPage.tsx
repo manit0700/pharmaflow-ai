@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
-import { fetchConfig, saveConfig, fetchCallerIdStatus, type ConfigSettings, type CallerIdStatus } from '@/utils/api'
+import { fetchConfig, saveConfig, fetchCallerIdStatus, startCallerIdVerification, type ConfigSettings, type CallerIdStatus } from '@/utils/api'
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<ConfigSettings | null>(null)
@@ -17,6 +17,24 @@ export function SettingsPage() {
   const [callerIdStatus, setCallerIdStatus] = useState<CallerIdStatus | null>(null)
   const [callerIdError, setCallerIdError] = useState<string | null>(null)
   const [checkingCallerId, setCheckingCallerId] = useState(false)
+  const [verifyPhone, setVerifyPhone] = useState('')
+  const [verifyLoading, setVerifyLoading] = useState(false)
+  const [verifyResult, setVerifyResult] = useState<{ validationCode: string; phoneNumber: string } | null>(null)
+  const [verifyError, setVerifyError] = useState<string | null>(null)
+
+  async function handleVerifyCallerId() {
+    setVerifyLoading(true)
+    setVerifyError(null)
+    setVerifyResult(null)
+    try {
+      const result = await startCallerIdVerification(formatPhone(verifyPhone))
+      setVerifyResult({ validationCode: result.validationCode, phoneNumber: result.phoneNumber })
+    } catch (e) {
+      setVerifyError(e instanceof Error ? e.message : 'Could not start verification right now.')
+    } finally {
+      setVerifyLoading(false)
+    }
+  }
 
   async function checkCallerIdStatus(number?: string) {
     setCheckingCallerId(true)
@@ -167,9 +185,54 @@ export function SettingsPage() {
                 >
                   {checkingCallerId ? 'Checking…' : 'Check caller ID'}
                 </Button>
+
+                <div className="mt-4 space-y-2 border-t border-border pt-4">
+                  <Label htmlFor="verifyPhone">Verify a new number</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Verify your pharmacy phone as an outgoing caller ID without buying it. Twilio calls the number and
+                    plays a code to confirm you own it.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="verifyPhone"
+                      placeholder="+1 (555) 000-0000"
+                      value={verifyPhone}
+                      onChange={(e) => setVerifyPhone(e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => void handleVerifyCallerId()}
+                      disabled={verifyLoading || verifyPhone.trim() === ''}
+                    >
+                      {verifyLoading ? 'Calling…' : 'Send verification call'}
+                    </Button>
+                  </div>
+                  {verifyResult && (
+                    <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
+                      Twilio will call {verifyResult.phoneNumber}. Listen for code:{' '}
+                      <span className="font-semibold text-foreground">{verifyResult.validationCode}</span> — the call
+                      confirms automatically when answered.
+                    </div>
+                  )}
+                  {verifyError && (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+                      {verifyError}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="staffPhone">Staff callback number</Label>
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="staffPhone">Staff callback number</Label>
+                  {field('staffPhone') ? (
+                    <Badge variant={settings?.enableSmsFollowup ? 'success' : 'secondary'}>
+                      {settings?.enableSmsFollowup ? 'SMS alerts on' : 'SMS alerts off'}
+                    </Badge>
+                  ) : (
+                    <Badge variant="warning">Set a staff phone to enable alerts</Badge>
+                  )}
+                </div>
                 <Input
                   id="staffPhone"
                   placeholder="+16822415143"

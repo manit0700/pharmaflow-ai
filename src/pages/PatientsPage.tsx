@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { fetchCallJobs, type CallJob } from '@/utils/api'
-import { Search, X, Users, RefreshCw } from 'lucide-react'
+import { Search, X, Users, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -28,6 +28,23 @@ function relativeTime(dateStr: string | null | undefined): string {
   if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`
   const months = Math.floor(days / 30)
   return `${months} month${months === 1 ? '' : 's'} ago`
+}
+
+function formatDateTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—'
+  return new Date(dateStr).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+function formatDuration(seconds: number | null | undefined): string {
+  if (!seconds || seconds <= 0) return '—'
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
 type BadgeVariant = 'default' | 'secondary' | 'outline' | 'destructive'
@@ -77,6 +94,7 @@ interface PatientRecord {
   phoneNumber: string
   medicationName: string
   latestJob: CallJob
+  jobs: CallJob[]
   callReason: string
 }
 
@@ -105,6 +123,7 @@ function groupByPatient(jobs: CallJob[]): PatientRecord[] {
       phoneNumber: latest.phoneNumber,
       medicationName: latest.medicationName,
       latestJob: latest,
+      jobs: sorted,
       callReason: latest.callReason,
     }
   })
@@ -129,6 +148,16 @@ export function PatientsPage() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [reasonFilter, setReasonFilter] = useState<ReasonFilter>('all')
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set())
+
+  const toggleExpanded = (key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   const load = useCallback(async () => {
     try {
@@ -287,6 +316,7 @@ export function PatientsPage() {
                     <th className="pb-2 pr-4">Medication</th>
                     <th className="pb-2 pr-4">Last Called</th>
                     <th className="pb-2 pr-4">Refill Status</th>
+                    <th className="pb-2 pr-4 w-8"><span className="sr-only">History</span></th>
                     <th className="pb-2">Actions</th>
                   </tr>
                 </thead>
@@ -294,45 +324,112 @@ export function PatientsPage() {
                   {filtered.map((patient) => {
                     const badge = getRefillBadge(patient.latestJob)
                     const lastCalled = patient.latestJob.callAttemptedAt ?? patient.latestJob.createdAt
+                    const isExpanded = expandedKeys.has(patient.key)
                     return (
-                      <tr key={patient.key} className="hover:bg-muted/40 transition-colors">
-                        <td className="py-2.5 pr-4 font-medium">{patient.patientName}</td>
-                        <td className="py-2.5 pr-4 text-muted-foreground">{patient.phoneNumber}</td>
-                        <td className="py-2.5 pr-4">{patient.medicationName}</td>
-                        <td className="py-2.5 pr-4 text-muted-foreground">
-                          {relativeTime(lastCalled)}
-                        </td>
-                        <td className="py-2.5 pr-4">
-                          <Badge
-                            variant={badge.variant}
-                            className={badge.pulse ? 'animate-pulse' : ''}
-                          >
-                            {badge.label}
-                          </Badge>
-                        </td>
-                        <td className="py-2.5">
-                          <div className="flex items-center gap-1">
+                      <Fragment key={patient.key}>
+                        <tr className="hover:bg-muted/40 transition-colors">
+                          <td className="py-2.5 pr-4 font-medium">{patient.patientName}</td>
+                          <td className="py-2.5 pr-4 text-muted-foreground">{patient.phoneNumber}</td>
+                          <td className="py-2.5 pr-4">{patient.medicationName}</td>
+                          <td className="py-2.5 pr-4 text-muted-foreground">
+                            {relativeTime(lastCalled)}
+                          </td>
+                          <td className="py-2.5 pr-4">
+                            <Badge
+                              variant={badge.variant}
+                              className={badge.pulse ? 'animate-pulse' : ''}
+                            >
+                              {badge.label}
+                            </Badge>
+                          </td>
+                          <td className="py-2.5 pr-4">
                             <Button
                               variant="ghost"
-                              size="sm"
-                              className="h-7 px-2 text-xs"
-                              asChild
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => toggleExpanded(patient.key)}
+                              aria-expanded={isExpanded}
+                              aria-label={isExpanded ? 'Hide call history' : 'Show call history'}
+                              title={`${patient.jobs.length} call${patient.jobs.length === 1 ? '' : 's'}`}
                             >
-                              <a href={`tel:${patient.phoneNumber}`}>Call</a>
+                              {isExpanded ? (
+                                <ChevronDown className="h-4 w-4" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4" />
+                              )}
                             </Button>
-                            {patient.latestJob.aiSummary && (
+                          </td>
+                          <td className="py-2.5">
+                            <div className="flex items-center gap-1">
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 className="h-7 px-2 text-xs"
-                                title={patient.latestJob.aiSummary}
+                                asChild
                               >
-                                Summary
+                                <a href={`tel:${patient.phoneNumber}`}>Call</a>
                               </Button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
+                              {patient.latestJob.aiSummary && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  title={patient.latestJob.aiSummary}
+                                >
+                                  Summary
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-muted/20">
+                            <td colSpan={7} className="px-4 py-3">
+                              <p className="mb-2 text-xs font-medium text-muted-foreground">
+                                Call history · {patient.jobs.length} call{patient.jobs.length === 1 ? '' : 's'}
+                              </p>
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b border-border/60 text-left font-medium text-muted-foreground">
+                                    <th className="pb-1.5 pr-4">Date</th>
+                                    <th className="pb-1.5 pr-4">Status</th>
+                                    <th className="pb-1.5 pr-4">Duration</th>
+                                    <th className="pb-1.5 pr-4">Patient Response</th>
+                                    <th className="pb-1.5">Medication</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border/40">
+                                  {patient.jobs.map((job) => {
+                                    const jobBadge = getRefillBadge(job)
+                                    return (
+                                      <tr key={job.id}>
+                                        <td className="py-1.5 pr-4 text-muted-foreground whitespace-nowrap">
+                                          {formatDateTime(job.callAttemptedAt ?? job.createdAt)}
+                                        </td>
+                                        <td className="py-1.5 pr-4">
+                                          <Badge
+                                            variant={jobBadge.variant}
+                                            className={jobBadge.pulse ? 'animate-pulse' : ''}
+                                          >
+                                            {jobBadge.label}
+                                          </Badge>
+                                        </td>
+                                        <td className="py-1.5 pr-4 text-muted-foreground whitespace-nowrap">
+                                          {formatDuration(job.callDuration)}
+                                        </td>
+                                        <td className="py-1.5 pr-4 text-muted-foreground">
+                                          {job.patientResponse ?? '—'}
+                                        </td>
+                                        <td className="py-1.5">{job.medicationName}</td>
+                                      </tr>
+                                    )
+                                  })}
+                                </tbody>
+                              </table>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     )
                   })}
                 </tbody>

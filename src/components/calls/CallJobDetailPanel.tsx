@@ -1,8 +1,11 @@
-import { X } from 'lucide-react'
+import { useState } from 'react'
+import { X, Save } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Textarea } from '@/components/ui/textarea'
 import type { CallJob } from '@/utils/api'
+import { updateStaffNotes } from '@/utils/api'
 import { buildLiveFeed } from '@/utils/liveTranscript'
 import { cn } from '@/lib/utils'
 
@@ -39,10 +42,26 @@ function formatRole(role: string) {
 export function CallJobDetailPanel({
   job,
   onClose,
+  onJobUpdate,
 }: {
   job: CallJob
   onClose: () => void
+  onJobUpdate?: (updated: CallJob) => void
 }) {
+  const [notes, setNotes] = useState(job.staffNotes ?? '')
+  const [saving, setSaving] = useState(false)
+
+  async function saveNotes() {
+    if (notes === (job.staffNotes ?? '')) return
+    setSaving(true)
+    try {
+      const updated = await updateStaffNotes(job.id, notes)
+      onJobUpdate?.(updated)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const messages = parseMessages(job.messagesJson)
   const liveFeed = buildLiveFeed(job)
   const rxList = parsePrescriptions(job.prescriptionsJson)
@@ -137,6 +156,24 @@ export function CallJobDetailPanel({
             <p>{job.notes}</p>
           </div>
         )}
+
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-muted-foreground">Staff notes</p>
+          <Textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            onBlur={() => void saveNotes()}
+            placeholder="Add internal notes visible only to pharmacy staff…"
+            className="min-h-[72px] resize-none text-sm"
+            rows={3}
+          />
+          {notes !== (job.staffNotes ?? '') && (
+            <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => void saveNotes()} disabled={saving}>
+              <Save className="h-3 w-3" />
+              {saving ? 'Saving…' : 'Save notes'}
+            </Button>
+          )}
+        </div>
 
         {job.errorMessage && (
           <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-destructive">

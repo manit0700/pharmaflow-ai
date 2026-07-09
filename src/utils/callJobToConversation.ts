@@ -155,6 +155,7 @@ export function callJobToConversation(job: CallJob): Conversation {
     aiConfidence: job.aiConfidence ?? (job.patientResponse ? 0.9 : 0.75),
     resolutionStatus: mapResolution(job),
     escalationReason: job.followUpReason ?? undefined,
+    staffNotes: job.staffNotes ?? '',
     durationSec: Math.max(durationSec, messages.length > 0 ? 15 : 0),
     startedAt,
     workflowName: job.callReason.replace(/_/g, ' '),

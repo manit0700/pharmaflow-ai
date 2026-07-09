@@ -15,6 +15,17 @@ importRouter.post('/import/excel', upload.single('file'), async (req, res) => {
     }
 
     const parsed = parseExcelBuffer(req.file.buffer)
+    const duplicates = await Promise.all(
+      parsed.map((row) =>
+        prisma.callJob.findFirst({
+          where: {
+            phoneNumber: row.phoneNumber,
+            callStatus: { notIn: ['failed', 'canceled'] },
+          },
+          select: { id: true },
+        }).then(Boolean),
+      ),
+    )
     const created = await Promise.all(
       parsed.map((row) =>
         prisma.callJob.create({
@@ -32,11 +43,16 @@ importRouter.post('/import/excel', upload.single('file'), async (req, res) => {
         }),
       ),
     )
+    const rows = parsed.map((row, index) => ({
+      ...row,
+      duplicate: duplicates[index] ?? false,
+    }))
 
     res.json({
       imported: created.length,
       valid: created.filter((j) => j.validationStatus === 'valid').length,
       invalid: created.filter((j) => j.validationStatus === 'invalid').length,
+      rows,
       jobs: created,
     })
   } catch (e) {

@@ -88,6 +88,19 @@ callJobsRouter.get('/call-jobs/export', async (_req, res) => {
 callJobsRouter.get('/call-jobs/scheduler-status', async (_req, res) => {
   try {
     const now = new Date()
+    const jobSelect = {
+      id: true,
+      patientName: true,
+      phoneNumber: true,
+      medicationName: true,
+      callReason: true,
+      scheduledFor: true,
+      retryAttempt: true,
+      maxRetryAttempts: true,
+      retryStatus: true,
+      callStatus: true,
+    } as const
+
     const [pendingBatch, pendingRetry] = await Promise.all([
       prisma.callJob.findMany({
         where: {
@@ -95,7 +108,7 @@ callJobsRouter.get('/call-jobs/scheduler-status', async (_req, res) => {
           retryOfCallJobId: null,
           validationStatus: 'valid',
         },
-        select: { id: true, patientName: true, scheduledFor: true },
+        select: jobSelect,
         orderBy: { scheduledFor: 'asc' },
         take: 50,
       }),
@@ -105,7 +118,7 @@ callJobsRouter.get('/call-jobs/scheduler-status', async (_req, res) => {
           retryOfCallJobId: { not: null },
           callStatus: { in: ['scheduled', 'queued'] },
         },
-        select: { id: true, patientName: true, scheduledFor: true },
+        select: jobSelect,
         orderBy: { scheduledFor: 'asc' },
         take: 50,
       }),
@@ -120,6 +133,8 @@ callJobsRouter.get('/call-jobs/scheduler-status', async (_req, res) => {
       retryDue: pendingRetry.filter(isDue).length,
       nextBatch: pendingBatch[0]?.scheduledFor?.toISOString() ?? null,
       nextRetry: pendingRetry[0]?.scheduledFor?.toISOString() ?? null,
+      batchJobs: pendingBatch,
+      retryJobs: pendingRetry,
     })
   } catch {
     res.json({ error: 'Could not read scheduler status' })
@@ -211,11 +226,24 @@ const EDITABLE_CALL_STATUSES = new Set([
   'needs_review',
 ])
 
+function twilioRecordingAuthHeader(): string | null {
+  const apiKey = config.twilioApiKeySid.trim()
+  const apiSecret = config.twilioApiKeySecret.trim()
+  if (apiKey.startsWith('SK') && apiSecret) {
+    return `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`
+  }
+  if (config.twilioAccountSid && config.twilioAuthToken) {
+    return `Basic ${Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString('base64')}`
+  }
+  return null
+}
+
 callJobsRouter.patch('/call-jobs/:id', async (req, res) => {
   try {
     const body = req.body as Record<string, unknown>
     const status = body.callStatus != null ? String(body.callStatus) : undefined
     const notes = body.notes != null ? String(body.notes) : undefined
+    const staffNotes = body.staffNotes != null ? String(body.staffNotes) : undefined
     const followUpReason = body.followUpReason != null ? String(body.followUpReason) : undefined
 
     if (status && !EDITABLE_CALL_STATUSES.has(status)) {
@@ -237,6 +265,7 @@ callJobsRouter.patch('/call-jobs/:id', async (req, res) => {
     const data: Parameters<typeof prisma.callJob.update>[0]['data'] = {}
     if (status) data.callStatus = status
     if (notes !== undefined) data.notes = notes || null
+    if (staffNotes !== undefined) data.staffNotes = staffNotes || null
     if (followUpReason !== undefined) data.followUpReason = followUpReason || null
 
     if (status === 'completed') {
@@ -370,16 +399,35 @@ callJobsRouter.post('/call-jobs/:id/retry', async (req, res) => {
   }
 })
 
+callJobsRouter.post('/call-jobs/:id/cancel-retry', async (req, res) => {
+  const jobId = req.params.id
+  if (!jobId) { res.status(400).json({ error: 'ID required' }); return }
+  try {
+    const job = await prisma.callJob.update({
+      where: { id: jobId },
+      data: {
+        retryStatus: 'cancelled',
+        callStatus: 'queued',
+        scheduledFor: null,
+        retryReason: 'Cancelled by staff',
+      },
+    })
+    res.json(job)
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Cancel retry failed' })
+  }
+})
+
 // Proxy Twilio recording audio — avoids exposing credentials to browser
 callJobsRouter.get('/call-jobs/:id/recording/audio', async (req, res) => {
   try {
     const job = await prisma.callJob.findUnique({ where: { id: req.params.id }, select: { recordingUrl: true } })
     if (!job?.recordingUrl) { res.status(404).json({ error: 'No recording available' }); return }
-    if (!config.twilioAccountSid || !config.twilioAuthToken) {
+    const authHeader = twilioRecordingAuthHeader()
+    if (!authHeader) {
       res.status(503).json({ error: 'Recording playback is not configured for this environment.' })
       return
     }
-    const authHeader = 'Basic ' + Buffer.from(`${config.twilioAccountSid}:${config.twilioAuthToken}`).toString('base64')
     const upstream = await fetch(job.recordingUrl, { headers: { Authorization: authHeader } })
     if (!upstream.ok) { res.status(502).json({ error: 'Recording fetch failed' }); return }
     res.setHeader('Content-Type', upstream.headers.get('Content-Type') ?? 'audio/mpeg')

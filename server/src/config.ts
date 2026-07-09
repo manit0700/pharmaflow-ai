@@ -12,8 +12,8 @@ const configSource = getConfigSource()
 
 export const config = {
   configSource,
-  port: Number(process.env.PORT ?? 4002),
-  publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? 'http://localhost:4002').replace(/\/$/, ''),
+  port: Number(process.env.PORT ?? 4003),
+  publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? 'http://localhost:4003').replace(/\/$/, ''),
   /** Office/main account SID — must start with AC (not SK) */
   twilioAccountSid: process.env.TWILIO_ACCOUNT_SID ?? '',
   /** Optional: office API key SID (SK…) + secret (recommended) */

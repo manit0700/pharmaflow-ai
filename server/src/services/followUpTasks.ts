@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { mapCallReasonToWorkflow } from './callOutcome.js'
+import { sendStaffAlertSms } from './sms.js'
 
 export type FollowUpOutcome =
   | 'no_answer'
@@ -169,12 +170,6 @@ const OUTCOME_CONFIG: Record<FollowUpOutcome, OutcomeConfig> = {
 
 const OPEN_TASK_STATUSES = ['open', 'in_progress']
 
-/**
- * Compute due date + time based on priority and when the task is being created.
- * - urgent → same day 17:00 (staff must act today)
- * - high   → same day 17:00, or tomorrow 10:00 if created after 15:00
- * - normal → next business day 17:00 (skip weekends)
- */
 function computeDueDateTime(priority: string, baseDate: Date = new Date()): { dueDate: string; dueTime: string } {
   const hour = baseDate.getHours()
 
@@ -191,12 +186,11 @@ function computeDueDateTime(priority: string, baseDate: Date = new Date()): { du
     return { dueDate: next.toISOString().slice(0, 10), dueTime: '10:00' }
   }
 
-  // normal / low → next business day
   const next = new Date(baseDate)
   next.setDate(next.getDate() + 1)
   const dow = next.getDay()
-  if (dow === 6) next.setDate(next.getDate() + 2) // Sat → Mon
-  if (dow === 0) next.setDate(next.getDate() + 1) // Sun → Mon
+  if (dow === 6) next.setDate(next.getDate() + 2)
+  if (dow === 0) next.setDate(next.getDate() + 1)
   return { dueDate: next.toISOString().slice(0, 10), dueTime: '17:00' }
 }
 
@@ -423,6 +417,13 @@ export async function ensureFollowUpTaskForCallOutcome(
   })
 
   await persistSideEffects([
+    outcome === 'voicemail' || config.taskType === 'pharmacist_review'
+      ? sendStaffAlertSms({
+          patientName: job.patientName,
+          medicationName: job.medicationName,
+          reason: outcome,
+        })
+      : Promise.resolve(),
     appendTaskActivity(task.id, 'task_created', `Follow-up task created for ${maskedName}.`, {
       taskType: config.taskType,
       priority: config.priority,

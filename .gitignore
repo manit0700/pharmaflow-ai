@@ -40,3 +40,5 @@ server/.claude-flow
 
 # Local git metadata (gitdir: repo.git)
 repo.git
+
+/src/generated/prisma

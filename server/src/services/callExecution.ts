@@ -97,6 +97,11 @@ export async function runCall(jobId: string, fallbackJob?: RunnableCallJob | nul
     callAttemptedAt: new Date(),
     errorMessage: null,
     retryStatus: job.callStatus === 'scheduled' ? 'in_progress' : undefined,
+    // Clear previous call's AI state so each attempt starts completely fresh.
+    // Leaving __DOB_VERIFIED__ in messagesJson causes dobAlreadyVerified=true
+    // at the start of the new call, which skips the DOB step entirely.
+    messagesJson: null,
+    patientResponse: null,
   })
 
   try {

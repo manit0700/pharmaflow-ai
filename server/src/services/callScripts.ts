@@ -8,6 +8,7 @@ export interface Prescription {
 export interface ScriptContext {
   pharmacyName: string
   patientName: string
+  staffPhone?: string
   patientDob?: string
   medicationName: string
   prescriptions?: Prescription[]
@@ -34,9 +35,6 @@ export interface CallScript {
   options: ResponseOption[]
 }
 
-const DEFAULT_VOICEMAIL =
-  'Hello, this is {pharmacy} calling with an important prescription-related update. Please call us back at your earliest convenience. Thank you.'
-
 export const CALL_SCRIPT_CATALOG: Record<CallReason, CallScript> = {
   refill_reminder: {
     callReason: 'refill_reminder',
@@ -61,7 +59,7 @@ export const CALL_SCRIPT_CATALOG: Record<CallReason, CallScript> = {
       if (opt.digit === '3') return 'Thank you for letting us know.'
       return 'Thank you.'
     },
-    voicemail: DEFAULT_VOICEMAIL,
+    voicemail: 'Hello {patient}, this is {pharmacy} calling about a prescription refill. Please call us back at your earliest convenience. To reach us directly, call {staffPhone}. Thank you.',
     options: [
       { digit: '1', label: 'Process refill today', patientResponse: 'Confirmed refill — process today', action: 'complete' },
       { digit: '2', label: 'Not ready yet', patientResponse: 'Not ready for refill yet', action: 'complete' },
@@ -93,7 +91,7 @@ export const CALL_SCRIPT_CATALOG: Record<CallReason, CallScript> = {
       if (opt.digit === '3') return 'Thank you for confirming.'
       return 'Thank you.'
     },
-    voicemail: DEFAULT_VOICEMAIL,
+    voicemail: 'Hello {patient}, this is {pharmacy} calling about a prescription ready for pickup. Please call us back at your earliest convenience. To reach us directly, call {staffPhone}. Thank you.',
     options: [
       { digit: '1', label: 'Picking up today', patientResponse: 'Will pick up today', action: 'complete' },
       { digit: '2', label: 'Needs more time', patientResponse: 'Needs more time before pickup', action: 'complete' },
@@ -120,7 +118,7 @@ export const CALL_SCRIPT_CATALOG: Record<CallReason, CallScript> = {
       if (opt.digit === '3') return 'Thank you for confirming.'
       return 'Thank you.'
     },
-    voicemail: DEFAULT_VOICEMAIL,
+    voicemail: 'Hello {patient}, this is {pharmacy} calling about your prescription delivery. Please call us back at your earliest convenience. To reach us directly, call {staffPhone}. Thank you.',
     options: [
       { digit: '1', label: 'Available for delivery', patientResponse: 'Available for delivery today', action: 'complete' },
       { digit: '2', label: 'Reschedule delivery', patientResponse: 'Requested delivery reschedule', action: 'transfer' },
@@ -145,7 +143,7 @@ export const CALL_SCRIPT_CATALOG: Record<CallReason, CallScript> = {
       if (opt.digit === '2') return 'Our team will call you back shortly. Thank you.'
       return 'Thank you.'
     },
-    voicemail: DEFAULT_VOICEMAIL,
+    voicemail: 'Hello {patient}, this is {pharmacy} calling about an insurance update for your prescription. Please call us back at your earliest convenience. To reach us directly, call {staffPhone}. Thank you.',
     options: [
       { digit: '1', label: 'Available now', patientResponse: 'Available to discuss insurance', action: 'transfer' },
       { digit: '2', label: 'Request callback', patientResponse: 'Requested insurance callback', action: 'callback' },
@@ -171,7 +169,7 @@ export const CALL_SCRIPT_CATALOG: Record<CallReason, CallScript> = {
       if (opt.digit === '3') return 'Glad to hear it is resolved. Thank you.'
       return 'Thank you.'
     },
-    voicemail: DEFAULT_VOICEMAIL,
+    voicemail: 'Hello {patient}, this is {pharmacy} following up on a prescription matter. Please call us back at your earliest convenience. To reach us directly, call {staffPhone}. Thank you.',
     options: [
       { digit: '1', label: 'Good time to talk', patientResponse: 'Available to talk now', action: 'transfer' },
       { digit: '2', label: 'Call back later', patientResponse: 'Requested callback later', action: 'callback' },
@@ -198,6 +196,8 @@ export function fillTemplate(text: string, ctx: ScriptContext): string {
   return text
     .replace(/\{pharmacy\}/g, ctx.pharmacyName)
     .replace(/\{patient\}/g, ctx.patientName)
+    .replace(/\s*To reach us directly, call \{staffPhone\}\./g, ctx.staffPhone ? ` To reach us directly, call ${ctx.staffPhone}.` : '')
+    .replace(/\{staffPhone\}/g, ctx.staffPhone ?? '')
     .replace(/\{medication\}/g, ctx.medicationName || 'your medication')
 }
 

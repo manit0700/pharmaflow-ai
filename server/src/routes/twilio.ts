@@ -1,22 +1,24 @@
 import { Router } from 'express'
 import { prisma } from '../lib/prisma.js'
 import { config } from '../config.js'
-import { buildInboundTwiml } from '../services/twilio.js'
 import { buildAiSummary } from '../services/script.js'
-import { detectNonHumanAudio, needsStaffFollowUp } from '../services/safety.js'
+import { detectNonHumanAudio, isOptOutRequest, needsStaffFollowUp } from '../services/safety.js'
 import { loadMessageHistory, runAiCallTurn } from '../services/callAi.js'
 import { sendSmsFollowUp } from '../services/sms.js'
 import {
   buildAiClosingTwiml,
+  buildAiDobGatherTwiml,
   buildAiDobRetryTwiml,
   buildAiGatherTwiml,
   buildAiGreetingTwiml,
   buildAiPostDobPrompt,
+  buildCallbackMatchTwiml,
   buildDtmfClosingTwiml,
   buildDtmfDobRetryTwiml,
   buildDtmfGreetingTwiml,
   buildDtmfMenuTwiml,
   buildInboundAckTwiml,
+  buildInboundTwiml,
   buildTransferTwiml,
   buildVoicemailTwiml,
   resolveMenuSelection,
@@ -38,6 +40,7 @@ import {
 } from '../services/followUpTasks.js'
 import type { CallReason } from '../config.js'
 import { canTransitionCallStatus } from '../services/callStatusTransitions.js'
+import { scheduleOutcomeRetry } from '../services/voicemailRetry.js'
 
 export const twilioRouter = Router()
 
@@ -358,6 +361,8 @@ twilioRouter.post('/twilio/status', async (req, res) => {
       callStatus: nextStatus,
       callCompletedAt: final ? new Date() : job.callCompletedAt,
       callDuration: CallDuration ? Number(CallDuration) : job.callDuration,
+      // Clear in_progress retryStatus when the call reaches a terminal state
+      ...(final && job.retryStatus === 'in_progress' ? { retryStatus: 'none' } : {}),
       errorMessage: ErrorCode ? `${ErrorCode}: ${ErrorMessage ?? 'Twilio call error'}` : job.errorMessage,
       aiSummary:
         final && !job.aiSummary
@@ -375,6 +380,9 @@ twilioRouter.post('/twilio/status', async (req, res) => {
     })
 
     if (final) {
+      if ((normalizedStatus === 'no_answer' || normalizedStatus === 'busy') && job.retryStatus !== 'scheduled' && job.retryAttempt < 3) {
+        await scheduleOutcomeRetry(job.id, normalizedStatus).catch(() => null)
+      }
       const updatedJob = await prisma.callJob.findUnique({ where: { id: job.id } }).catch(() => null)
       if (updatedJob?.staffFollowUpNeeded) {
         await ensureFollowUpTaskForCallJob(updatedJob.id).catch(() => null)
@@ -401,13 +409,37 @@ twilioRouter.post('/twilio/status', async (req, res) => {
 async function handleInbound(req: import('express').Request, res: import('express').Response) {
   const body = (req.body ?? {}) as Record<string, string>
   const caller = body.From ?? 'unknown'
+
+  // Look for a recent outbound call we left a voicemail or missed — match by phone number
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+  const matchedJob = await prisma.callJob.findFirst({
+    where: {
+      phoneNumber: caller,
+      callStatus: { in: ['voicemail', 'no_answer', 'callback_requested'] },
+      createdAt: { gte: sevenDaysAgo },
+    },
+    orderBy: { createdAt: 'desc' },
+  }).catch(() => null)
+
   await prisma.inboundCall.create({
     data: {
       callerPhone: caller,
       status: 'active',
-      intent: 'unknown',
+      intent: matchedJob ? 'callback_return' : 'unknown',
+      summary: matchedJob ? `Callback for outbound job ${matchedJob.id} (${matchedJob.callReason})` : undefined,
     },
   }).catch(() => null)
+
+  if (matchedJob) {
+    const ctx = scriptContextFromJob(matchedJob)
+    res.type('text/xml').send(buildCallbackMatchTwiml({
+      callJobId: matchedJob.id,
+      reason: matchedJob.callReason as import('../config.js').CallReason,
+      ctx,
+    }))
+    return
+  }
+
   res.type('text/xml').send(buildInboundTwiml())
 }
 
@@ -418,11 +450,11 @@ async function handleVoiceResponse(req: import('express').Request, res: import('
   const query = req.query as Record<string, string>
   const body = (req.body ?? {}) as Record<string, string>
   const digits = body.Digits ?? ''
-  // Accept speech down to 0.25 confidence — the caller is the loudest voice on the line;
-  // very low scores (< 0.25) are typically DTMF noise or silence, not real speech.
+  // Accept speech at 0.45+ confidence. Background voices in the same room typically
+  // score 0.25–0.44; the patient speaking directly into the phone scores 0.45+.
   const rawConf = body.Confidence !== undefined ? parseFloat(String(body.Confidence)) : 1.0
   const speechConf = Number.isNaN(rawConf) ? 1.0 : rawConf
-  const speech = speechConf >= 0.25 ? (body.SpeechResult ?? '') : ''
+  const speech = speechConf >= 0.45 ? (body.SpeechResult ?? '') : ''
   if (!body.SpeechResult && !body.Digits) {
     console.log('[gather-debug] no speech/digits received', {
       step: query.step, conf: body.Confidence, speechResult: body.SpeechResult, digits: body.Digits,
@@ -437,13 +469,9 @@ async function handleVoiceResponse(req: import('express').Request, res: import('
   const flow = query.flow
 
   if (flow === 'inbound') {
-    const intentMap: Record<string, string> = {
-      '1': 'refill',
-      '2': 'status',
-      '3': 'delivery',
-      '4': 'store_hours',
-      '0': 'staff',
-    }
+    const intentMap: Record<string, string> = config.staffPhone
+      ? { '1': 'staff' }
+      : { '1': 'refill', '2': 'status', '3': 'delivery', '4': 'store_hours', '0': 'staff' }
     const intent = intentMap[digits] ?? 'unknown'
     const caller = body.From ?? 'unknown'
 
@@ -473,6 +501,66 @@ async function handleVoiceResponse(req: import('express').Request, res: import('
     }
 
     res.type('text/xml').send(buildInboundAckTwiml())
+    return
+  }
+
+  // Callback return — patient pressed 1 or 2 after our callback-match greeting
+  if (flow === 'callback_return' && callJobId) {
+    const caller = body.From ?? 'unknown'
+    const matchedJob = await prisma.callJob.findUnique({ where: { id: callJobId } }).catch(() => null)
+
+    if (digits === '1' || !digits) {
+      // Patient wants to speak with staff — update original job + create task
+      await prisma.callJob.update({
+        where: { id: callJobId },
+        data: {
+          staffFollowUpNeeded: true,
+          followUpReason: 'Patient called back — ready to speak with staff',
+          patientResponse: matchedJob?.patientResponse
+            ? `${matchedJob.patientResponse}; Patient called back`
+            : 'Patient called back',
+        },
+      }).catch(() => null)
+
+      await prisma.inboundCall.create({
+        data: {
+          callerPhone: caller,
+          intent: 'callback_return_staff',
+          status: 'escalated',
+          summary: `Patient called back for job ${callJobId} — transferred to staff`,
+        },
+      }).catch(() => null)
+
+      await createStaffTask({
+        callJobId,
+        patientName: matchedJob?.patientName ?? 'Unknown',
+        phoneNumber: caller,
+        medicationName: matchedJob?.medicationName ?? undefined,
+        taskType: 'callback_return',
+        priority: 'urgent',
+        notes: `Patient called back regarding ${matchedJob?.callReason ?? 'prescription matter'}. Original call status was ${matchedJob?.callStatus ?? 'unknown'}.`,
+      })
+
+      res.type('text/xml').send(buildTransferTwiml())
+      return
+    }
+
+    if (digits === '2') {
+      // Patient wants to leave a message — play voicemail ack
+      await prisma.inboundCall.create({
+        data: {
+          callerPhone: caller,
+          intent: 'callback_return_voicemail',
+          status: 'resolved',
+          summary: `Patient called back for job ${callJobId} — left message request`,
+        },
+      }).catch(() => null)
+      res.type('text/xml').send(buildInboundAckTwiml())
+      return
+    }
+
+    // No digit pressed — transfer to staff as default
+    res.type('text/xml').send(buildTransferTwiml())
     return
   }
 
@@ -522,9 +610,8 @@ async function handleVoiceResponse(req: import('express').Request, res: import('
 
   const ctx = scriptContextFromJob(job)
 
-  // AMD is intentionally NOT enabled on outbound calls (no machineDetection param in calls.create).
-  // AnsweredBy is only present if AMD fires — which requires it to be explicitly enabled.
-  // Only treat as voicemail when Twilio explicitly signals a machine answer.
+  // AMD: machineDetection='Enable' is set in calls.create(), so AnsweredBy is always present.
+  // Only treat as voicemail when Twilio explicitly signals a machine answer — never infer from absence.
   const machineAnsweredBy = new Set(['machine_start', 'machine_end_beep', 'machine_end_silence', 'machine_end_other', 'fax'])
   if (body.AnsweredBy && machineAnsweredBy.has(body.AnsweredBy)) {
     await updateCallJobIfPossible(callJobId, {
@@ -533,6 +620,7 @@ async function handleVoiceResponse(req: import('express').Request, res: import('
       staffFollowUpNeeded: true,
       followUpReason: 'Call went to voicemail — no live patient answer',
     })
+    await scheduleOutcomeRetry(callJobId, 'voicemail').catch(() => null)
     res.type('text/xml').send(buildVoicemailTwiml(reason, ctx))
     return
   }
@@ -775,30 +863,28 @@ async function handleAiVoiceResponse(
     const greetingEventKey = callbackEventKey([twilioCallSid, callJobId, 'ai_greeting'])
 
     // Twilio may retry the initial voice-response webhook on slow responses.
-    // If the greeting was already stored, serve a brief DOB re-prompt instead of
-    // replaying the full greeting — prevents the patient from hearing the intro twice.
+    // If the greeting was already stored, serve a brief availability re-prompt instead of
+    // replaying the full intro — prevents the patient from hearing the intro twice.
     if (transcriptHasEvent(job.transcriptJson, greetingEventKey)) {
       res.type('text/xml').send(buildAiGatherTwiml({
         callJobId,
         reason,
-        spoken: 'Please say your date of birth, or press the month and day on your keypad.',
-        step: 'greeting',
+        spoken: 'Are you available to speak for a moment?',
+        step: 'availability',
         state,
       }))
       return
     }
 
     const script = getCallScript(reason)
-    const spoken =
-      fillTemplate(script.greeting, ctx) +
-      ' To verify your identity, please say your date of birth, or press the month and day on your keypad.'
+    const availabilitySpoken = `${fillTemplate(script.greeting, ctx)} Are you available to speak for a moment?`
     await updateCallJobIfPossible(callJobId, {
       transcriptJson: transcriptJsonWith(job.transcriptJson, {
         eventKey: greetingEventKey,
         mode: 'ai',
         speaker: 'ai',
-        step: 'greeting',
-        text: spoken,
+        step: 'availability',
+        text: availabilitySpoken,
       }),
     })
     res.type('text/xml').send(buildAiGreetingTwiml({ callJobId, reason, ctx, state }))
@@ -811,8 +897,12 @@ async function handleAiVoiceResponse(
 
   // Count completed AI turns (1 assistant message = 1 turn)
   const aiTurns = history.filter((m) => m.role === 'assistant').length
-  // Check if DOB has been verified in a prior turn
-  const dobAlreadyVerified = history.some((m) => m.role === 'system' && m.content === '__DOB_VERIFIED__')
+  // Check if DOB has been verified in a prior turn.
+  // Fall back to job.patientResponse in case the messagesJson update was not persisted
+  // (e.g. race condition between updateCallJobIfPossible and the next webhook).
+  const dobAlreadyVerified =
+    history.some((m) => m.role === 'system' && m.content === '__DOB_VERIFIED__') ||
+    job.patientResponse === 'DOB verified'
 
   // IVR/voicemail detection: only check when speech is present and call is early (< 3 AI turns).
   // Catches IVR greetings transcribed as patient speech before wasting an OpenAI call.
@@ -843,6 +933,7 @@ async function handleAiVoiceResponse(
         eventKey: ivrEventKey,
         payload: { step, speechLength: speech.length },
       })
+      await scheduleOutcomeRetry(callJobId, 'voicemail').catch(() => null)
       await ensureFollowUpTaskForCallOutcome(
         {
           id: callJobId,
@@ -859,7 +950,140 @@ async function handleAiVoiceResponse(
         'voicemail',
       ).catch(() => null)
     }
-    res.type('text/xml').send('<Response><Hangup/></Response>')
+    res.type('text/xml').send(buildVoicemailTwiml(reason, ctx))
+    return
+  }
+
+  // Opt-out: patient asked to stop calls — mark do-not-call and end politely
+  if (speech && isOptOutRequest(speech)) {
+    const optOutEventKey = callbackEventKey([twilioCallSid, callJobId, 'opt_out', speech.slice(0, 40)])
+    if (!transcriptHasEvent(job.transcriptJson, optOutEventKey)) {
+      await updateCallJobIfPossible(callJobId, {
+        callStatus: 'completed',
+        patientResponse: 'Patient requested no further calls',
+        staffFollowUpNeeded: true,
+        followUpReason: 'Patient asked to stop calls — staff to review',
+        callCompletedAt: new Date(),
+        resolutionStatus: 'complete',
+        transcriptJson: transcriptJsonWith(job.transcriptJson, {
+          eventKey: optOutEventKey,
+          mode: 'system',
+          speaker: 'patient',
+          step: 'opt_out',
+          text: speech,
+          result: 'opt_out_requested',
+        }),
+      })
+    }
+    res.type('text/xml').send(buildAiClosingTwiml(
+      'We have removed you from our call list. We apologize for any inconvenience. Have a great day.',
+      'complete',
+    ))
+    return
+  }
+
+  // Availability check — patient said yes/no to "are you available?"
+  if (step === 'availability') {
+    const availabilityEventKey = callbackEventKey([twilioCallSid, callJobId, 'availability', speech.slice(0, 40)])
+
+    const notAvailablePatterns =
+      /\b(no|nope|nah|not now|not available|busy|bad time|call back|call me later|can't talk|cannot talk|not a good time|bad moment)\b/i
+    const availablePatterns =
+      /\b(yes|yeah|yep|sure|ok|okay|go ahead|available|now is fine|that's fine|of course|absolutely|please|go for it)\b/i
+
+    const isNo = notAvailablePatterns.test(speech) || digits === '2'
+    const isYes = !isNo && (availablePatterns.test(speech) || digits === '1')
+
+    if (isNo) {
+      await updateCallJobIfPossible(callJobId, {
+        callStatus: 'callback_requested',
+        patientResponse: 'Not available — requested callback',
+        staffFollowUpNeeded: true,
+        followUpReason: 'Patient was not available when called',
+        callCompletedAt: new Date(),
+        resolutionStatus: 'callback',
+        transcriptJson: transcriptJsonWith(job.transcriptJson, {
+          eventKey: availabilityEventKey,
+          mode: 'ai',
+          speaker: 'patient',
+          step: 'availability',
+          text: speech || digits || 'not available',
+          result: 'callback_requested',
+        }),
+      })
+      await ensureFollowUpTaskForCallOutcome(
+        {
+          id: callJobId,
+          patientName: job.patientName,
+          phoneNumber: job.phoneNumber,
+          medicationName: job.medicationName,
+          callReason: reason,
+          callStatus: 'callback_requested',
+          patientResponse: 'Not available — requested callback',
+          followUpReason: 'Patient was not available when called',
+          staffFollowUpNeeded: true,
+        },
+        'callback_requested',
+      ).catch(() => null)
+      res.type('text/xml').send(buildAiClosingTwiml(
+        'No problem at all. We will try you again at a better time. Have a great day.',
+        'complete',
+      ))
+      return
+    }
+
+    if (isYes) {
+      await updateCallJobIfPossible(callJobId, {
+        transcriptJson: transcriptJsonWith(job.transcriptJson, {
+          eventKey: availabilityEventKey,
+          mode: 'ai',
+          speaker: 'patient',
+          step: 'availability',
+          text: speech || digits || 'yes',
+          result: 'available',
+        }),
+      })
+      res.type('text/xml').send(buildAiDobGatherTwiml({ callJobId, reason, state }))
+      return
+    }
+
+    // Unclear or no speech — re-ask at most once. If already re-asked, treat as
+    // not available to prevent looping on background noise.
+    const availabilityReaskKey = callbackEventKey([twilioCallSid, callJobId, 'availability_reask'])
+    const alreadyReasked = transcriptHasEvent(job.transcriptJson, availabilityReaskKey)
+
+    if (alreadyReasked) {
+      await updateCallJobIfPossible(callJobId, {
+        callStatus: 'callback_requested',
+        patientResponse: 'Could not confirm availability',
+        staffFollowUpNeeded: true,
+        followUpReason: 'Unable to confirm patient availability — background noise or no response',
+        callCompletedAt: new Date(),
+        resolutionStatus: 'pending',
+      })
+      res.type('text/xml').send(buildAiClosingTwiml(
+        'We had trouble hearing you. We will try reaching you again at another time. Have a great day.',
+        'complete',
+      ))
+      return
+    }
+
+    await updateCallJobIfPossible(callJobId, {
+      transcriptJson: transcriptJsonWith(job.transcriptJson, {
+        eventKey: availabilityReaskKey,
+        mode: 'system',
+        speaker: 'system',
+        step: 'availability_reask',
+        text: 'Re-asked availability due to unclear response',
+      }),
+    })
+    res.type('text/xml').send(buildAiGatherTwiml({
+      callJobId,
+      reason,
+      spoken: 'Sorry, I did not catch that. Are you available to speak for a moment? Please say yes or no, or press 1 for yes or 2 for no.',
+      step: 'availability',
+      state,
+    }))
     return
   }
 
@@ -1000,9 +1224,42 @@ async function handleAiVoiceResponse(
   // If no speech and no digits at this point, re-prompt briefly rather than
   // sending "(no speech detected)" to OpenAI, which wastes a turn and can confuse the AI.
   if (!speech.trim() && !(digits ?? '').trim()) {
+    const noSpeechRepromptKey = callbackEventKey([twilioCallSid, callJobId, 'no_speech_reprompt'])
+    const alreadyReprompted = transcriptHasEvent(job.transcriptJson, noSpeechRepromptKey)
+
+    // If we already re-prompted once with no response, patient is not responding —
+    // mark callback_requested so staff can follow up rather than looping.
+    if (alreadyReprompted && dobAlreadyVerified) {
+      await updateCallJobIfPossible(callJobId, {
+        callStatus: 'callback_requested',
+        patientResponse: job.patientResponse ?? 'No response after prescription question',
+        staffFollowUpNeeded: true,
+        followUpReason: 'Patient did not respond to prescription question — staff to follow up',
+        callCompletedAt: new Date(),
+        resolutionStatus: 'pending',
+      })
+      res.type('text/xml').send(buildAiClosingTwiml(
+        'We did not hear a response. A pharmacy team member will follow up with you shortly.',
+        'callback',
+      ))
+      return
+    }
+
     const reprompt = dobAlreadyVerified
       ? 'I did not catch that. Could you say that again?'
       : 'I did not hear you clearly. Please say your date of birth.'
+
+    // Record this reprompt so the next no-speech knows to give up
+    await updateCallJobIfPossible(callJobId, {
+      transcriptJson: transcriptJsonWith(job.transcriptJson, {
+        eventKey: noSpeechRepromptKey,
+        mode: 'ai',
+        speaker: 'ai',
+        step: 'no_speech_reprompt',
+        text: reprompt,
+      }),
+    })
+
     res.type('text/xml').send(buildAiGatherTwiml({
       callJobId,
       reason,
