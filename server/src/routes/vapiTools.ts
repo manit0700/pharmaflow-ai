@@ -214,6 +214,8 @@ vapiToolsRouter.post('/tools/select-fulfillment', async (req, res) => {
       callStatus: 'completed',
       callCompletedAt: new Date(),
       resolutionStatus: 'resolved',
+      // Ensure patientResponse is set — confirmRefill should have set it, but guard here too
+      patientResponse: job.patientResponse ?? 'Confirmed refill — process today',
     },
   })
   await sendSmsFollowUp({
@@ -226,6 +228,28 @@ vapiToolsRouter.post('/tools/select-fulfillment', async (req, res) => {
   }).catch(() => 'failed')
   const label = choice === 'pickup' ? 'pharmacy pickup' : `home delivery${deliveryAddress ? ` to ${deliveryAddress}` : ''}`
   res.json(vapiResult(tcId, `Fulfillment preference recorded: ${label}. All preferences have been saved. Pharmacy staff will complete the next steps.`))
+})
+
+vapiToolsRouter.post('/tools/request-pharmacist', async (req, res) => {
+  const body = req.body as VapiToolBody
+  const callId = extractCallJobId(body) ?? extractCallId(body)
+  const tcId = toolCallId(body)
+  const job = callId ? await findCallJob(callId) : null
+  if (!job) {
+    res.json(vapiResult(tcId, 'Recorded. Please transfer the call now using transferCall.'))
+    return
+  }
+  const updated = await prisma.callJob.update({
+    where: { id: job.id },
+    data: {
+      callStatus: 'escalated',
+      staffFollowUpNeeded: true,
+      followUpReason: 'Patient requested to speak with a pharmacist — live transfer initiated',
+      resolutionStatus: 'escalated',
+    },
+  })
+  await ensureFollowUpTaskForCallOutcome(updated, 'escalated').catch(() => null)
+  res.json(vapiResult(tcId, 'Pharmacist request recorded. Please transfer the call now using transferCall.'))
 })
 
 vapiToolsRouter.post('/tools/request-escalation', async (req, res) => {
