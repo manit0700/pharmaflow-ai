@@ -57,9 +57,10 @@ const ENV_KEY_MAP: Record<string, string> = {
   callMode: 'CALL_MODE',
   twilioVoice: 'TWILIO_VOICE',
   twilioLanguage: 'TWILIO_LANGUAGE',
+  enableSmsFollowup: 'ENABLE_SMS_FOLLOWUP',
 }
 
-type EditableConfig = Pick<typeof config, 'twilioPhoneNumber' | 'staffPhone' | 'pharmacyName' | 'callMode' | 'twilioVoice' | 'twilioLanguage'>
+type EditableConfig = Pick<typeof config, 'twilioPhoneNumber' | 'staffPhone' | 'pharmacyName' | 'callMode' | 'twilioVoice' | 'twilioLanguage' | 'enableSmsFollowup'>
 
 function normalizeEditableConfigPatch(patches: Partial<EditableConfig>): Partial<EditableConfig> {
   const next: Partial<EditableConfig> = {}
@@ -103,6 +104,10 @@ function normalizeEditableConfigPatch(patches: Partial<EditableConfig>): Partial
     const language = String(patches.twilioLanguage).trim()
     if (!/^[a-z]{2}(?:-[A-Z]{2})?$/.test(language)) throw new Error('Twilio language must look like en-US or en-GB.')
     next.twilioLanguage = language
+  }
+
+  if (patches.enableSmsFollowup !== undefined) {
+    next.enableSmsFollowup = Boolean(patches.enableSmsFollowup)
   }
 
   return next
