@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
 import { fetchConfig, saveConfig, fetchCallerIdStatus, startCallerIdVerification, type ConfigSettings, type CallerIdStatus } from '@/utils/api'
 
 export function SettingsPage() {
@@ -93,6 +94,7 @@ export function SettingsPage() {
         callMode: form.callMode ?? settings.callMode,
         twilioVoice: form.twilioVoice ?? settings.twilioVoice,
         twilioLanguage: form.twilioLanguage ?? settings.twilioLanguage,
+        enableSmsFollowup: form.enableSmsFollowup ?? settings.enableSmsFollowup,
       }
       const result = await saveConfig(patches)
       setSettings(result.config)
@@ -109,7 +111,7 @@ export function SettingsPage() {
   function isDirty(): boolean {
     if (!settings) return false
     const keys: (keyof ConfigSettings)[] = [
-      'twilioPhoneNumber', 'staffPhone', 'pharmacyName', 'callMode', 'twilioVoice', 'twilioLanguage',
+      'twilioPhoneNumber', 'staffPhone', 'pharmacyName', 'callMode', 'twilioVoice', 'twilioLanguage', 'enableSmsFollowup',
     ]
     return keys.some((k) => String(form[k] ?? settings[k]) !== String(settings[k]))
   }
@@ -321,6 +323,33 @@ export function SettingsPage() {
                   </SelectContent>
                 </Select>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">SMS follow-up</CardTitle>
+              <CardDescription>Send patients a confirmation text after a completed refill call</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="enableSmsFollowup">Enable SMS follow-up</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Texts the patient after a confirmed refill. Requires a staff phone number and Twilio SMS credit.
+                  </p>
+                </div>
+                <Switch
+                  id="enableSmsFollowup"
+                  checked={form.enableSmsFollowup ?? false}
+                  onCheckedChange={(checked) => setForm((prev) => ({ ...prev, enableSmsFollowup: checked }))}
+                />
+              </div>
+              {(form.enableSmsFollowup ?? false) && !field('staffPhone') && (
+                <div className="rounded-md border border-warning/40 bg-warning/5 p-3 text-xs text-warning-foreground">
+                  Set a staff phone number above — it is used as the SMS sender.
+                </div>
+              )}
             </CardContent>
           </Card>
 

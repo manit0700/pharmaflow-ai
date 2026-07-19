@@ -21,7 +21,7 @@ configRouter.get('/config', (_req, res) => {
   })
 })
 
-const ALLOWED = new Set(['twilioPhoneNumber', 'staffPhone', 'pharmacyName', 'callMode', 'twilioVoice', 'twilioLanguage'])
+const ALLOWED = new Set(['twilioPhoneNumber', 'staffPhone', 'pharmacyName', 'callMode', 'twilioVoice', 'twilioLanguage', 'enableSmsFollowup'])
 
 export type CallerIdType = 'owned_number' | 'verified_caller_id' | 'not_found' | 'unknown'
 
