@@ -51,26 +51,7 @@ callJobsRouter.post('/call-jobs', async (req, res) => {
       callStatus: row.validationStatus === 'valid' ? 'queued' : 'invalid',
     }
 
-    const job = await prisma.callJob.create({ data }).catch(() => ({
-      id: `stateless_${Date.now()}`,
-      ...data,
-      twilioCallSid: null,
-      callAttemptedAt: null,
-      callCompletedAt: null,
-      callDuration: null,
-      patientResponse: null,
-      aiSummary: null,
-      errorMessage: null,
-      transcriptJson: null,
-      messagesJson: null,
-      aiConfidence: null,
-      resolutionStatus: null,
-      staffFollowUpNeeded: false,
-      followUpReason: null,
-      smsStatus: 'none',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }))
+    const job = await prisma.callJob.create({ data })
 
     res.status(201).json(job)
   } catch (e) {
