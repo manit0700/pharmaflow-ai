@@ -42,3 +42,4 @@ server/.claude-flow
 repo.git
 
 /src/generated/prisma
+.prisma/

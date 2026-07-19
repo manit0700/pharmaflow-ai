@@ -17,7 +17,7 @@
     "check:api": "bash scripts/check-api.sh",
     "preview:scripts": "npm run build --prefix server && node scripts/preview-call-scripts.mjs",
     "preview:ai-prompt": "npm run build --prefix server && node scripts/preview-ai-prompt.mjs",
-    "build": "prisma generate --schema server/prisma/schema.prisma && tsc -b && vite build",
+    "build": "cd server && npx prisma generate && cd .. && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
